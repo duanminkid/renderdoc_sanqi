@@ -36,7 +36,7 @@ static void MetalHooked(void *handle, const char *)
   metalhook.handle = handle;
 
   // as a hook callback this is only called while capturing
-  RDCASSERT(!RenderDoc::Inst().IsReplayApp());
+  RDCASSERT(!SanQiCapture::Inst().IsReplayApp());
 
   MetalHook::RegisterGlobalNonHookedMetalFunctions();
 }

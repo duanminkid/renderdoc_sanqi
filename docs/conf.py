@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-# RenderDoc documentation build configuration file, created by
+# SanQi Capture documentation build configuration file, created by
 # sphinx-quickstart on Thu May 12 16:59:09 2016.
 #
 # This file is execfile()d with the current directory set to its
@@ -73,7 +73,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = 'RenderDoc'
+project = 'SanQi Capture'
 copyright = '{0}, Baldur Karlsson'.format(datetime.date.today().year)
 author = 'Baldur Karlsson'
 
@@ -159,7 +159,7 @@ html_theme = 'alabaster'
 
 # The name for this set of Sphinx documents.
 # "<project> v<release> documentation" by default.
-html_title = 'RenderDoc documentation'
+html_title = 'SanQi Capture documentation'
 
 # A shorter title for the navigation bar.  Default is the same as html_title.
 #html_short_title = None
@@ -263,7 +263,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'RenderDoc.tex', 'RenderDoc Documentation',
+    (master_doc, 'SanQi Capture.tex', 'SanQi Capture Documentation',
      'Baldur Karlsson', 'manual'),
 ]
 
@@ -293,7 +293,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'renderdoc', 'RenderDoc Documentation',
+    (master_doc, 'renderdoc', 'SanQi Capture Documentation',
      [author], 1)
 ]
 
@@ -307,8 +307,8 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'RenderDoc', 'RenderDoc Documentation',
-     author, 'RenderDoc', 'One line description of project.',
+    (master_doc, 'SanQi Capture', 'SanQi Capture Documentation',
+     author, 'SanQi Capture', 'One line description of project.',
      'Miscellaneous'),
 ]
 

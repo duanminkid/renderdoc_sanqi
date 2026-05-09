@@ -23,7 +23,7 @@
    <enum>Qt::DefaultContextMenu</enum>
   </property>
   <property name="windowTitle">
-   <string>RenderDoc Tips</string>
+   <string>SanQi Capture Tips</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout_2">
    <property name="spacing">
@@ -150,7 +150,7 @@
            </font>
           </property>
           <property name="text">
-           <string>https://renderdoc.org/tips/1</string>
+           <string>https://www.sanqitech.internal/</string>
           </property>
           <property name="textFormat">
            <enum>Qt::RichText</enum>

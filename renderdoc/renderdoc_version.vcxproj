@@ -67,6 +67,8 @@
     <LibGit2SharpPath Condition="!exists('$(LibGit2SharpPath)')"></LibGit2SharpPath>
     <!-- on MSBuild 17 (VS2022 and up) the LibGit2Sharp.dll can't load its git dll because of architecture mismatches, so do manual ref lookups -->
     <LibGit2SharpPath Condition="'$(MSBuildVersion.Length)' > 0 And '$(MSBuildVersion.Substring(0,2))' >= 17"></LibGit2SharpPath>
+    <!-- Also disable on MSBuild 16 (VS2019 BuildTools) - 32-bit LibGit2Sharp crashes 64-bit MSBuild finalizer -->
+    <LibGit2SharpPath Condition="'$(MSBuildVersion.Length)' > 0 And '$(MSBuildVersion.Substring(0,2))' >= 16"></LibGit2SharpPath>
   </PropertyGroup>
   <!-- Declare the task with some inline code -->
   <UsingTask TaskName="GetGitCommitDotNet" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">

@@ -4199,7 +4199,7 @@ bool WrappedID3D11DeviceContext::Serialise_DrawAuto(SerialiserType &ser)
                                      MessageSource::IncorrectAPIUse,
                                      "Call to DrawAuto may be inaccurate if topology or vertex "
                                      "stride has changed between stream-out and draw.\n"
-                                     "Recapture with this version of RenderDoc to fix this "
+                                     "Recapture with this version of SanQi Capture to fix this "
                                      "problem, this capture was created with an older version.");
 
           if(m_CurrentPipelineState->IA.Topo == D3D11_PRIMITIVE_TOPOLOGY_POINTLIST)
@@ -7582,13 +7582,13 @@ bool WrappedID3D11DeviceContext::Serialise_Map(SerialiserType &ser, ID3D11Resour
 
     if(MapType == D3D11_MAP_WRITE_DISCARD)
     {
-      if(RenderDoc::Inst().GetCaptureOptions().verifyBufferAccess)
+      if(SanQiCapture::Inst().GetCaptureOptions().verifyBufferAccess)
         memset(appMem, 0xcc, mapLength);
       memcpy(record->GetShadowPtr(ctxMapID, 1), appMem, mapLength);
     }
 
     intercept = MapIntercept();
-    intercept.verifyWrite = RenderDoc::Inst().GetCaptureOptions().verifyBufferAccess;
+    intercept.verifyWrite = SanQiCapture::Inst().GetCaptureOptions().verifyBufferAccess;
     intercept.SetD3D(mappedResource);
     intercept.InitWrappedResource(resMap, Subresource, appMem);
     intercept.MapType = MapType;
@@ -7607,7 +7607,7 @@ bool WrappedID3D11DeviceContext::Serialise_Map(SerialiserType &ser, ID3D11Resour
     mapLength = (size_t)record->Length;
 
     intercept = MapIntercept();
-    intercept.verifyWrite = RenderDoc::Inst().GetCaptureOptions().verifyBufferAccess;
+    intercept.verifyWrite = SanQiCapture::Inst().GetCaptureOptions().verifyBufferAccess;
     intercept.SetD3D(mappedResource);
     intercept.MapType = MapType;
     intercept.MapFlags = MapFlags;
@@ -7757,7 +7757,7 @@ HRESULT WrappedID3D11DeviceContext::Map(ID3D11Resource *pResource, UINT Subresou
 
       record->UpdateCount++;
 
-      if(record->UpdateCount > 60 && !RenderDoc::Inst().GetCaptureOptions().verifyBufferAccess)
+      if(record->UpdateCount > 60 && !SanQiCapture::Inst().GetCaptureOptions().verifyBufferAccess)
       {
         m_HighTrafficResources.insert(Id);
         MarkDirtyResource(Id);

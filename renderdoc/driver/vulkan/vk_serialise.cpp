@@ -14468,7 +14468,7 @@ static size_t CalculateImageMemoryCopyHostMemorySize(VulkanResourceManager *reso
   // memoryImageHeight are meaningless, and the entirety of the image subresource is copied.
   // However, the driver needs to be queried with vkGetImageSubresourceLayout2 to determine the
   // amount of memory needed to hold the preswizzled image data. This flag is not supported by
-  // RenderDoc. See WrappedVulkan::vkCopyMemoryToImageEXT() for more details.
+  // SanQi Capture. See WrappedVulkan::vkCopyMemoryToImageEXT() for more details.
 
   // If either of memoryRowLength and memoryImageHeight are 0, they are implicitly derived from
   // imageExtent.

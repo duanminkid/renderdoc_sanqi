@@ -99,7 +99,7 @@ bool WrappedVulkan::Prepare_InitialState(WrappedVkRes *res)
       estimatedSize += record->accelerationStructureInfo->memSize;
   }
 
-  uint32_t softMemoryLimit = RenderDoc::Inst().GetCaptureOptions().softMemoryLimit;
+  uint32_t softMemoryLimit = SanQiCapture::Inst().GetCaptureOptions().softMemoryLimit;
   if(softMemoryLimit > 0 && !m_PreparedNotSerialisedInitStates.empty() &&
      CurMemoryUsage(MemoryScope::InitialContents) + estimatedSize > softMemoryLimit * 1024 * 1024ULL)
   {
@@ -112,7 +112,7 @@ bool WrappedVulkan::Prepare_InitialState(WrappedVkRes *res)
     RDCLOG("Flushing batch of initial states to disk with %llu bytes allocated",
            CurMemoryUsage(MemoryScope::InitialContents));
     rdcstr tempFile = StringFormat::Fmt(
-        "%s/rdoc_%llu_%llu.bin", get_dirname(RenderDoc::Inst().GetCaptureFileTemplate()).c_str(),
+        "%s/rdoc_%llu_%llu.bin", get_dirname(SanQiCapture::Inst().GetCaptureFileTemplate()).c_str(),
         Timing::GetTick(), Threading::GetCurrentID());
     FileIO::CreateParentDirectory(tempFile);
     m_InitTempFiles.push_back(tempFile);
@@ -1401,7 +1401,7 @@ bool WrappedVulkan::Serialise_InitialState(SerialiserType &ser, ResourceId id, V
     {
       RDCWARN(
           "Skipping sparse initial states of buffer from old capture. "
-          "Please re-capture with this version of RenderDoc.");
+          "Please re-capture with this version of SanQi Capture.");
 
       // serialise without allocating, this makes for a skip
       VkSparseMemoryBind *binds = NULL;
@@ -1476,7 +1476,7 @@ bool WrappedVulkan::Serialise_InitialState(SerialiserType &ser, ResourceId id, V
         {
           RDCWARN(
               "Skipping sparse initial states of buffer from old capture. "
-              "Please re-capture with this version of RenderDoc.");
+              "Please re-capture with this version of SanQi Capture.");
 
           // serialise without allocating, this makes for a skip
           VkSparseMemoryBind *opaque = NULL;

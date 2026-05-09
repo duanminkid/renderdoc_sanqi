@@ -56,7 +56,7 @@ static void InternalRef(ID3D11DeviceChild *child)
 
 D3D11DebugManager::D3D11DebugManager(WrappedID3D11Device *wrapper)
 {
-  RenderDoc::Inst().RegisterMemoryRegion(this, sizeof(D3D11DebugManager));
+  SanQiCapture::Inst().RegisterMemoryRegion(this, sizeof(D3D11DebugManager));
 
   m_pDevice = wrapper;
   m_pImmediateContext = wrapper->GetImmediateContext();
@@ -67,7 +67,7 @@ D3D11DebugManager::D3D11DebugManager(WrappedID3D11Device *wrapper)
   InitCommonResources();
 
   // now do replay-only initialisation
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
     InitReplayResources();
 
   m_pDevice->GetShaderCache()->SetCaching(false);
@@ -84,7 +84,7 @@ D3D11DebugManager::~D3D11DebugManager()
     m_ShaderItemCache.pop_back();
   }
 
-  RenderDoc::Inst().UnregisterMemoryRegion(this);
+  SanQiCapture::Inst().UnregisterMemoryRegion(this);
 }
 
 //////////////////////////////////////////////////////

@@ -39,11 +39,104 @@
 #include "os/os_specific.h"
 #include "strings/string_utils.h"
 
-// gives us an address to identify this dll with
+// Resource cache: preloaded at DLL attach before PEB unlink.
+// FindResource fails after PEB unlink even with a valid HMODULE because
+// Windows internally uses the loader data tables to locate .rsrc sections.
+// Solution: read all embedded resources into memory before stealth is applied.
+#include <map>
+#include <string>
 static int dllLocator = 0;
+static std::map<int, rdcstr> g_ResourceCache;
+static HMODULE g_CachedSelfHandle = NULL;
+static wchar_t g_CachedSelfPath[MAX_PATH] = {0};
+// Cache of INTERNAL_* function pointers resolved before PE header wipe
+static std::map<std::string, uintptr_t> g_CachedProcAddrs;
+
+HMODULE GetCachedSelfModuleHandle()
+{
+  return g_CachedSelfHandle;
+}
+
+const wchar_t *GetCachedSelfModulePath()
+{
+  return g_CachedSelfPath;
+}
+
+// Returns cached proc address resolved before stealth (PE header wipe safe)
+uintptr_t GetCachedProcAddress(const char *name)
+{
+  auto it = g_CachedProcAddrs.find(name);
+  if(it != g_CachedProcAddrs.end())
+    return it->second;
+  return 0;
+}
+
+void CacheSelfModuleHandle()
+{
+  HMODULE mod = NULL;
+  GetModuleHandleExA(
+      GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+      (const char *)&dllLocator, &mod);
+  if(mod == NULL)
+    return;
+
+  g_CachedSelfHandle = mod;
+
+  // Cache DLL path before PEB unlink invalidates GetModuleFileNameW
+  GetModuleFileNameW(mod, g_CachedSelfPath, MAX_PATH - 1);
+
+  // Cache all INTERNAL_* exports now, before ApplyModuleStealth wipes the PE header
+  static const char *kInternalExports[] = {
+      "INTERNAL_SetCaptureFile",
+      "INTERNAL_SetDebugLogFile",
+      "INTERNAL_SetCaptureOptions",
+      "INTERNAL_GetTargetControlIdent",
+      "INTERNAL_EnvModName",
+      "INTERNAL_EnvModValue",
+      "INTERNAL_EnvSep",
+      "INTERNAL_EnvMod",
+      "INTERNAL_ApplyEnvMods",
+  };
+  for(const char *exp : kInternalExports)
+  {
+    FARPROC addr = GetProcAddress(mod, exp);
+    if(addr)
+      g_CachedProcAddrs[exp] = (uintptr_t)addr;
+  }
+
+  // All RESOURCE_* IDs from resource.h
+  static const int kAllResourceIds[] = {
+      101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115,
+      116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130,
+      131, 301,
+      401, 402, 403, 404, 405, 408, 409, 410, 411, 412, 413, 414, 416, 417, 418,
+      419, 420, 421, 422, 423, 424, 425, 426, 427, 428, 429, 430, 440, 441, 442,
+      443, 444, 445, 446, 447, 448, 449, 450, 451, 452,
+  };
+
+  for(int id : kAllResourceIds)
+  {
+    HRSRC hRes = FindResource(mod, MAKEINTRESOURCE(id), MAKEINTRESOURCE(TYPE_EMBED));
+    if(hRes == NULL)
+      continue;
+    HGLOBAL hData = LoadResource(mod, hRes);
+    if(hData == NULL)
+      continue;
+    DWORD sz = SizeofResource(mod, hRes);
+    const char *ptr = (const char *)LockResource(hData);
+    if(ptr && sz > 0)
+      g_ResourceCache[id] = rdcstr(ptr, sz);
+  }
+}
 
 rdcstr GetDynamicEmbeddedResource(int resource)
 {
+  // Fast path: return from cache (valid even after PEB unlink / stealth)
+  auto it = g_ResourceCache.find(resource);
+  if(it != g_ResourceCache.end())
+    return it->second;
+
+  // Fallback for early calls before CacheSelfModuleHandle (shouldn't happen)
   HMODULE mod = NULL;
   GetModuleHandleExA(
       GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -286,7 +379,7 @@ rdcstr GetReplayAppFilename()
 
   rdcstr path = StringFormat::Wide2UTF8(curFile);
   path = get_dirname(path);
-  rdcstr exe = path + "/qrenderdoc.exe";
+  rdcstr exe = path + "/qsanqiInjectTool.exe";
 
   FILE *f = FileIO::fopen(exe, FileIO::ReadBinary);
   if(f)
@@ -297,7 +390,7 @@ rdcstr GetReplayAppFilename()
 
   // if qrenderdoc.exe doesn't live in the same dir, we must be in x86/
   // so look one up the tree.
-  exe = path + "/../qrenderdoc.exe";
+  exe = path + "/../qsanqiInjectTool.exe";
 
   f = FileIO::fopen(exe, FileIO::ReadBinary);
   if(f)
@@ -313,7 +406,7 @@ rdcstr GetReplayAppFilename()
   DWORD type = 0;
   DWORD dataSize = sizeof(curFile);
   RDCEraseEl(curFile);
-  RegGetValueW(HKEY_CLASSES_ROOT, L"RenderDoc.RDCCapture.1\\DefaultIcon", NULL, RRF_RT_ANY, &type,
+  RegGetValueW(HKEY_CLASSES_ROOT, L"SanQi Capture.RDCCapture.1\\DefaultIcon", NULL, RRF_RT_ANY, &type,
                (void *)curFile, &dataSize);
 
   if(type == REG_EXPAND_SZ || type == REG_SZ)
@@ -355,7 +448,7 @@ void GetDefaultFiles(const rdcstr &logBaseName, rdcstr &capture_filename, rdcstr
 
   wchar_t *filename_start = temp_filename + wcslen(temp_filename);
 
-  wsprintf(filename_start, L"RenderDoc\\%ls_%04d.%02d.%02d_%02d.%02d.rdc", mod, 1900 + now.tm_year,
+  wsprintf(filename_start, L"SanQi Capture\\%ls_%04d.%02d.%02d_%02d.%02d.rdc", mod, 1900 + now.tm_year,
            now.tm_mon + 1, now.tm_mday, now.tm_hour, now.tm_min);
 
   capture_filename = StringFormat::Wide2UTF8(temp_filename);
@@ -364,7 +457,7 @@ void GetDefaultFiles(const rdcstr &logBaseName, rdcstr &capture_filename, rdcstr
 
   rdcwstr wbase = StringFormat::UTF82Wide(logBaseName);
 
-  wsprintf(filename_start, L"RenderDoc\\%ls_%04d.%02d.%02d_%02d.%02d.%02d.log", wbase.c_str(),
+  wsprintf(filename_start, L"SanQi Capture\\%ls_%04d.%02d.%02d_%02d.%02d.%02d.log", wbase.c_str(),
            1900 + now.tm_year, now.tm_mon + 1, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec);
 
   logging_filename = StringFormat::Wide2UTF8(temp_filename);
@@ -400,7 +493,7 @@ rdcstr GetAppFolderFilename(const rdcstr &filename)
   while(ret.back() == '/' || ret.back() == '\\')
     ret.pop_back();
 
-  ret += "\\renderdoc\\" + filename;
+  ret += "\\sanqi\\" + filename;
 
   CreateParentDirectory(ret);
 

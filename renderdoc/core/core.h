@@ -384,7 +384,7 @@ typedef void (*ShutdownFunction)();
 //
 // It acts as a central hub that registers any driver providers and can be asked to create one
 // for a given logfile or type.
-class RenderDoc
+class SanQiCapture
 {
 public:
   struct FramePixels
@@ -407,7 +407,7 @@ public:
     ~FramePixels() { SAFE_DELETE_ARRAY(data); }
   };
 
-  static RenderDoc &Inst();
+  static SanQiCapture &Inst();
 
   template <typename ProgressType>
   void SetProgressCallback(RENDERDOC_ProgressCallback progress)
@@ -615,8 +615,8 @@ public:
   uint32_t GetCapturableWindowCount();
 
 private:
-  RenderDoc();
-  ~RenderDoc();
+  SanQiCapture();
+  ~SanQiCapture();
 
   void SyncAvailableGPUThread();
 
@@ -731,11 +731,11 @@ struct DriverRegistration
 {
   DriverRegistration(RDCDriver driver, ReplayDriverProvider provider)
   {
-    RenderDoc::Inst().RegisterReplayProvider(driver, provider);
+    SanQiCapture::Inst().RegisterReplayProvider(driver, provider);
   }
   DriverRegistration(RDCDriver driver, RemoteDriverProvider provider)
   {
-    RenderDoc::Inst().RegisterRemoteProvider(driver, provider);
+    SanQiCapture::Inst().RegisterRemoteProvider(driver, provider);
   }
 };
 
@@ -743,7 +743,7 @@ struct StructuredProcessRegistration
 {
   StructuredProcessRegistration(RDCDriver driver, StructuredProcessor provider)
   {
-    RenderDoc::Inst().RegisterStructuredProcessor(driver, provider);
+    SanQiCapture::Inst().RegisterStructuredProcessor(driver, provider);
   }
 };
 
@@ -752,11 +752,11 @@ struct ConversionRegistration
   ConversionRegistration(CaptureImporter importer, CaptureExporter exporter,
                          CaptureFileFormat description)
   {
-    RenderDoc::Inst().RegisterCaptureImportExporter(importer, exporter, description);
+    SanQiCapture::Inst().RegisterCaptureImportExporter(importer, exporter, description);
   }
   ConversionRegistration(CaptureExporter exporter, CaptureFileFormat description)
   {
-    RenderDoc::Inst().RegisterCaptureExporter(exporter, description);
+    SanQiCapture::Inst().RegisterCaptureExporter(exporter, description);
   }
 };
 
@@ -764,6 +764,6 @@ struct DeviceProtocolRegistration
 {
   DeviceProtocolRegistration(const rdcstr &protocol, ProtocolHandler handler)
   {
-    RenderDoc::Inst().RegisterDeviceProtocol(protocol, handler);
+    SanQiCapture::Inst().RegisterDeviceProtocol(protocol, handler);
   }
 };

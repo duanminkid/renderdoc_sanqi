@@ -44,7 +44,7 @@ struct FunctionHook
 // Each subsystem that wants to hook libraries creates a LibraryHook instance. That registers with
 // LibraryHooks via the singleton in global constructors, but does nothing initially.
 //
-// Early in init, during RenderDoc's initialisation, the last thing that happens is a call to
+// Early in init, during SanQi Capture's initialisation, the last thing that happens is a call to
 // LibraryHooks::RegisterHooks(). This iterates through the LibraryHook instances and calls
 // RegisterHooks on each of them.
 //

@@ -42,11 +42,41 @@
 
 #define GetEmbeddedResource(filename) GetDynamicEmbeddedResource(EmbeddedResource(filename))
 rdcstr GetDynamicEmbeddedResource(int resource);
+void CacheSelfModuleHandle();
+HMODULE GetCachedSelfModuleHandle();
+const wchar_t *GetCachedSelfModulePath();
+uintptr_t GetCachedProcAddress(const char *name);
 
 namespace OSUtility
 {
 inline void ForceCrash()
 {
+  // diag: log return address so we can identify who triggered ForceCrash
+  void *retAddr = _ReturnAddress();
+  {
+    char buf[256];
+    wsprintfA(buf, "ForceCrash caller RIP=0x%IX\n", (uintptr_t)retAddr);
+    // Try multiple locations
+    const char *paths[] = {
+        "C:\\sqc_fatal.txt",
+        "D:\\sqc_fatal.txt",
+        "E:\\sqc_fatal.txt",
+    };
+    for(int pi = 0; pi < 3; pi++)
+    {
+      HANDLE h = CreateFileA(paths[pi], FILE_APPEND_DATA,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                             OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+      if(h != INVALID_HANDLE_VALUE)
+      {
+        DWORD w;
+        WriteFile(h, buf, lstrlenA(buf), &w, NULL);
+        FlushFileBuffers(h);
+        CloseHandle(h);
+        break;
+      }
+    }
+  }
   *((int *)NULL) = 0;
 }
 inline bool DebuggerPresent()

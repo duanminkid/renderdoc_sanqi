@@ -30,7 +30,7 @@
 
 int RENDERDOC_CC SetCaptureOptionU32(RENDERDOC_CaptureOption opt, uint32_t val)
 {
-  CaptureOptions opts = RenderDoc::Inst().GetCaptureOptions();
+  CaptureOptions opts = SanQiCapture::Inst().GetCaptureOptions();
 
   switch(opt)
   {
@@ -52,7 +52,7 @@ int RENDERDOC_CC SetCaptureOptionU32(RENDERDOC_CaptureOption opt, uint32_t val)
     case eRENDERDOC_Option_DebugOutputMute: opts.debugOutputMute = (val != 0); break;
     case eRENDERDOC_Option_AllowUnsupportedVendorExtensions:
       if(val == 0x10DE)
-        RenderDoc::Inst().EnableVendorExtensions(VendorExtensions::NvAPI);
+        SanQiCapture::Inst().EnableVendorExtensions(VendorExtensions::NvAPI);
       else
         RDCWARN("AllowUnsupportedVendorExtensions unexpected parameter %x", val);
       break;
@@ -60,13 +60,13 @@ int RENDERDOC_CC SetCaptureOptionU32(RENDERDOC_CaptureOption opt, uint32_t val)
     default: RDCLOG("Unrecognised capture option '%d'", opt); return 0;
   }
 
-  RenderDoc::Inst().SetCaptureOptions(opts);
+  SanQiCapture::Inst().SetCaptureOptions(opts);
   return 1;
 }
 
 int RENDERDOC_CC SetCaptureOptionF32(RENDERDOC_CaptureOption opt, float val)
 {
-  CaptureOptions opts = RenderDoc::Inst().GetCaptureOptions();
+  CaptureOptions opts = SanQiCapture::Inst().GetCaptureOptions();
 
   switch(opt)
   {
@@ -93,7 +93,7 @@ int RENDERDOC_CC SetCaptureOptionF32(RENDERDOC_CaptureOption opt, float val)
     default: RDCLOG("Unrecognised capture option '%d'", opt); return 0;
   }
 
-  RenderDoc::Inst().SetCaptureOptions(opts);
+  SanQiCapture::Inst().SetCaptureOptions(opts);
   return 1;
 }
 
@@ -102,33 +102,33 @@ uint32_t RENDERDOC_CC GetCaptureOptionU32(RENDERDOC_CaptureOption opt)
   switch(opt)
   {
     case eRENDERDOC_Option_AllowVSync:
-      return (RenderDoc::Inst().GetCaptureOptions().allowVSync ? 1 : 0);
+      return (SanQiCapture::Inst().GetCaptureOptions().allowVSync ? 1 : 0);
     case eRENDERDOC_Option_AllowFullscreen:
-      return (RenderDoc::Inst().GetCaptureOptions().allowFullscreen ? 1 : 0);
+      return (SanQiCapture::Inst().GetCaptureOptions().allowFullscreen ? 1 : 0);
     case eRENDERDOC_Option_APIValidation:
-      return (RenderDoc::Inst().GetCaptureOptions().apiValidation ? 1 : 0);
+      return (SanQiCapture::Inst().GetCaptureOptions().apiValidation ? 1 : 0);
     case eRENDERDOC_Option_CaptureCallstacks:
-      return (RenderDoc::Inst().GetCaptureOptions().captureCallstacks ? 1 : 0);
+      return (SanQiCapture::Inst().GetCaptureOptions().captureCallstacks ? 1 : 0);
     case eRENDERDOC_Option_CaptureCallstacksOnlyDraws:
-      return (RenderDoc::Inst().GetCaptureOptions().captureCallstacksOnlyActions ? 1 : 0);
+      return (SanQiCapture::Inst().GetCaptureOptions().captureCallstacksOnlyActions ? 1 : 0);
     case eRENDERDOC_Option_DelayForDebugger:
-      return (RenderDoc::Inst().GetCaptureOptions().delayForDebugger);
+      return (SanQiCapture::Inst().GetCaptureOptions().delayForDebugger);
     case eRENDERDOC_Option_VerifyBufferAccess:
-      return (RenderDoc::Inst().GetCaptureOptions().verifyBufferAccess ? 1 : 0);
+      return (SanQiCapture::Inst().GetCaptureOptions().verifyBufferAccess ? 1 : 0);
     case eRENDERDOC_Option_HookIntoChildren:
-      return (RenderDoc::Inst().GetCaptureOptions().hookIntoChildren ? 1 : 0);
+      return (SanQiCapture::Inst().GetCaptureOptions().hookIntoChildren ? 1 : 0);
     case eRENDERDOC_Option_RefAllResources:
-      return (RenderDoc::Inst().GetCaptureOptions().refAllResources ? 1 : 0);
+      return (SanQiCapture::Inst().GetCaptureOptions().refAllResources ? 1 : 0);
     case eRENDERDOC_Option_SaveAllInitials:
       // option is deprecated - always enabled
       return 1;
     case eRENDERDOC_Option_CaptureAllCmdLists:
-      return (RenderDoc::Inst().GetCaptureOptions().captureAllCmdLists ? 1 : 0);
+      return (SanQiCapture::Inst().GetCaptureOptions().captureAllCmdLists ? 1 : 0);
     case eRENDERDOC_Option_DebugOutputMute:
-      return (RenderDoc::Inst().GetCaptureOptions().debugOutputMute ? 1 : 0);
+      return (SanQiCapture::Inst().GetCaptureOptions().debugOutputMute ? 1 : 0);
     case eRENDERDOC_Option_AllowUnsupportedVendorExtensions: return 0;
     case eRENDERDOC_Option_SoftMemoryLimit:
-      return (RenderDoc::Inst().GetCaptureOptions().softMemoryLimit);
+      return (SanQiCapture::Inst().GetCaptureOptions().softMemoryLimit);
     default: break;
   }
 
@@ -141,33 +141,33 @@ float RENDERDOC_CC GetCaptureOptionF32(RENDERDOC_CaptureOption opt)
   switch(opt)
   {
     case eRENDERDOC_Option_AllowVSync:
-      return (RenderDoc::Inst().GetCaptureOptions().allowVSync ? 1.0f : 0.0f);
+      return (SanQiCapture::Inst().GetCaptureOptions().allowVSync ? 1.0f : 0.0f);
     case eRENDERDOC_Option_AllowFullscreen:
-      return (RenderDoc::Inst().GetCaptureOptions().allowFullscreen ? 1.0f : 0.0f);
+      return (SanQiCapture::Inst().GetCaptureOptions().allowFullscreen ? 1.0f : 0.0f);
     case eRENDERDOC_Option_APIValidation:
-      return (RenderDoc::Inst().GetCaptureOptions().apiValidation ? 1.0f : 0.0f);
+      return (SanQiCapture::Inst().GetCaptureOptions().apiValidation ? 1.0f : 0.0f);
     case eRENDERDOC_Option_CaptureCallstacks:
-      return (RenderDoc::Inst().GetCaptureOptions().captureCallstacks ? 1.0f : 0.0f);
+      return (SanQiCapture::Inst().GetCaptureOptions().captureCallstacks ? 1.0f : 0.0f);
     case eRENDERDOC_Option_CaptureCallstacksOnlyDraws:
-      return (RenderDoc::Inst().GetCaptureOptions().captureCallstacksOnlyActions ? 1.0f : 0.0f);
+      return (SanQiCapture::Inst().GetCaptureOptions().captureCallstacksOnlyActions ? 1.0f : 0.0f);
     case eRENDERDOC_Option_DelayForDebugger:
-      return (RenderDoc::Inst().GetCaptureOptions().delayForDebugger * 1.0f);
+      return (SanQiCapture::Inst().GetCaptureOptions().delayForDebugger * 1.0f);
     case eRENDERDOC_Option_VerifyBufferAccess:
-      return (RenderDoc::Inst().GetCaptureOptions().verifyBufferAccess ? 1.0f : 0.0f);
+      return (SanQiCapture::Inst().GetCaptureOptions().verifyBufferAccess ? 1.0f : 0.0f);
     case eRENDERDOC_Option_HookIntoChildren:
-      return (RenderDoc::Inst().GetCaptureOptions().hookIntoChildren ? 1.0f : 0.0f);
+      return (SanQiCapture::Inst().GetCaptureOptions().hookIntoChildren ? 1.0f : 0.0f);
     case eRENDERDOC_Option_RefAllResources:
-      return (RenderDoc::Inst().GetCaptureOptions().refAllResources ? 1.0f : 0.0f);
+      return (SanQiCapture::Inst().GetCaptureOptions().refAllResources ? 1.0f : 0.0f);
     case eRENDERDOC_Option_SaveAllInitials:
       // option is deprecated - always enabled
       return 1.0f;
     case eRENDERDOC_Option_CaptureAllCmdLists:
-      return (RenderDoc::Inst().GetCaptureOptions().captureAllCmdLists ? 1.0f : 0.0f);
+      return (SanQiCapture::Inst().GetCaptureOptions().captureAllCmdLists ? 1.0f : 0.0f);
     case eRENDERDOC_Option_DebugOutputMute:
-      return (RenderDoc::Inst().GetCaptureOptions().debugOutputMute ? 1.0f : 0.0f);
+      return (SanQiCapture::Inst().GetCaptureOptions().debugOutputMute ? 1.0f : 0.0f);
     case eRENDERDOC_Option_AllowUnsupportedVendorExtensions: return 0.0f;
     case eRENDERDOC_Option_SoftMemoryLimit:
-      return (RenderDoc::Inst().GetCaptureOptions().softMemoryLimit * 1.0f);
+      return (SanQiCapture::Inst().GetCaptureOptions().softMemoryLimit * 1.0f);
     default: break;
   }
 

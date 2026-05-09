@@ -33,54 +33,54 @@
 
 static void SetFocusToggleKeys(RENDERDOC_InputButton *keys, int num)
 {
-  RenderDoc::Inst().SetFocusKeys(keys, num);
+  SanQiCapture::Inst().SetFocusKeys(keys, num);
 }
 
 static void SetCaptureKeys(RENDERDOC_InputButton *keys, int num)
 {
-  RenderDoc::Inst().SetCaptureKeys(keys, num);
+  SanQiCapture::Inst().SetCaptureKeys(keys, num);
 }
 
 static uint32_t GetOverlayBits()
 {
-  return RenderDoc::Inst().GetOverlayBits();
+  return SanQiCapture::Inst().GetOverlayBits();
 }
 
 static void MaskOverlayBits(uint32_t And, uint32_t Or)
 {
-  RenderDoc::Inst().MaskOverlayBits(And, Or);
+  SanQiCapture::Inst().MaskOverlayBits(And, Or);
 }
 
 static void RemoveHooks()
 {
-  RenderDoc::Inst().RemoveHooks();
+  SanQiCapture::Inst().RemoveHooks();
   LibraryHooks::RemoveHooks();
 }
 
 static void UnloadCrashHandler()
 {
-  RenderDoc::Inst().UnloadCrashHandler();
+  SanQiCapture::Inst().UnloadCrashHandler();
 }
 
 static void SetCaptureFilePathTemplate(const char *pathtemplate)
 {
   RDCLOG("Using capture file template %s", pathtemplate);
-  RenderDoc::Inst().SetCaptureFileTemplate(pathtemplate);
+  SanQiCapture::Inst().SetCaptureFileTemplate(pathtemplate);
 }
 
 static const char *GetCaptureFilePathTemplate()
 {
-  return RenderDoc::Inst().GetCaptureFileTemplate();
+  return SanQiCapture::Inst().GetCaptureFileTemplate();
 }
 
 static uint32_t GetNumCaptures()
 {
-  return (uint32_t)RenderDoc::Inst().GetCaptures().size();
+  return (uint32_t)SanQiCapture::Inst().GetCaptures().size();
 }
 
 static uint32_t GetCapture(uint32_t idx, char *filename, uint32_t *pathlength, uint64_t *timestamp)
 {
-  rdcarray<CaptureData> caps = RenderDoc::Inst().GetCaptures();
+  rdcarray<CaptureData> caps = SanQiCapture::Inst().GetCaptures();
 
   if(idx >= (uint32_t)caps.size())
   {
@@ -110,7 +110,7 @@ static void SetCaptureFileComments(const char *filePath, const char *comments)
   rdcstr path;
   if(filePath == NULL || filePath[0] == 0)
   {
-    rdcarray<CaptureData> caps = RenderDoc::Inst().GetCaptures();
+    rdcarray<CaptureData> caps = SanQiCapture::Inst().GetCaptures();
     if(caps.empty())
     {
       RDCERR(
@@ -180,17 +180,17 @@ static void SetCaptureFileComments(const char *filePath, const char *comments)
 
 static void TriggerCapture()
 {
-  RenderDoc::Inst().TriggerCapture(1);
+  SanQiCapture::Inst().TriggerCapture(1);
 }
 
 static void TriggerMultiFrameCapture(uint32_t numFrames)
 {
-  RenderDoc::Inst().TriggerCapture(numFrames);
+  SanQiCapture::Inst().TriggerCapture(numFrames);
 }
 
 static uint32_t IsTargetControlConnected()
 {
-  return RenderDoc::Inst().IsTargetControlConnected();
+  return SanQiCapture::Inst().IsTargetControlConnected();
 }
 
 static uint32_t LaunchReplayUI(uint32_t connectTargetControl, const char *cmdline)
@@ -203,52 +203,52 @@ static uint32_t LaunchReplayUI(uint32_t connectTargetControl, const char *cmdlin
   rdcstr cmd = cmdline ? cmdline : "";
   if(connectTargetControl)
     cmd += StringFormat::Fmt(" --targetcontrol localhost:%u",
-                             RenderDoc::Inst().GetTargetControlIdent());
+                             SanQiCapture::Inst().GetTargetControlIdent());
 
   return Process::LaunchProcess(replayapp, "", cmd, false);
 }
 
 static void SetActiveWindow(void *device, void *wndHandle)
 {
-  RenderDoc::Inst().SetActiveWindow(DeviceOwnedWindow(device, wndHandle));
+  SanQiCapture::Inst().SetActiveWindow(DeviceOwnedWindow(device, wndHandle));
 }
 
 static void StartFrameCapture(void *device, void *wndHandle)
 {
   DeviceOwnedWindow devWnd(device, wndHandle);
 
-  RenderDoc::Inst().StartFrameCapture(devWnd);
+  SanQiCapture::Inst().StartFrameCapture(devWnd);
 
   if(devWnd.device == NULL || devWnd.windowHandle == NULL)
-    RenderDoc::Inst().MatchClosestWindow(devWnd);
+    SanQiCapture::Inst().MatchClosestWindow(devWnd);
 
   if(devWnd.device != NULL && devWnd.windowHandle != NULL)
-    RenderDoc::Inst().SetActiveWindow(devWnd);
+    SanQiCapture::Inst().SetActiveWindow(devWnd);
 }
 
 static uint32_t IsFrameCapturing()
 {
-  return RenderDoc::Inst().IsFrameCapturing() ? 1 : 0;
+  return SanQiCapture::Inst().IsFrameCapturing() ? 1 : 0;
 }
 
 static uint32_t EndFrameCapture(void *device, void *wndHandle)
 {
-  return RenderDoc::Inst().EndFrameCapture(DeviceOwnedWindow(device, wndHandle)) ? 1 : 0;
+  return SanQiCapture::Inst().EndFrameCapture(DeviceOwnedWindow(device, wndHandle)) ? 1 : 0;
 }
 
 static void SetCaptureTitle(const char *title)
 {
-  RenderDoc::Inst().SetCaptureTitle(title);
+  SanQiCapture::Inst().SetCaptureTitle(title);
 }
 
 static uint32_t DiscardFrameCapture(void *device, void *wndHandle)
 {
-  return RenderDoc::Inst().DiscardFrameCapture(DeviceOwnedWindow(device, wndHandle)) ? 1 : 0;
+  return SanQiCapture::Inst().DiscardFrameCapture(DeviceOwnedWindow(device, wndHandle)) ? 1 : 0;
 }
 
 static uint32_t ShowReplayUI()
 {
-  return RenderDoc::Inst().ShowReplayUI() ? 1 : 0;
+  return SanQiCapture::Inst().ShowReplayUI() ? 1 : 0;
 }
 
 // defined in capture_options.cpp
@@ -359,7 +359,7 @@ extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_GetAPI(RENDERDOC_Version ver
 
   if(ret)
   {
-    RDCLOG("Initialising RenderDoc API version %d.%d.%d for requested version %d", major, minor,
+    RDCLOG("Initialising SanQi Capture API version %d.%d.%d for requested version %d", major, minor,
            patch, version);
     return 1;
   }

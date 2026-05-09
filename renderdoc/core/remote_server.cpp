@@ -291,7 +291,7 @@ static void ActiveRemoteClientThread(ClientThread *threadData,
     reader.ConfigureStructuredExport(&GetRemoteServerChunkName, false, 0, 1.0);
     writer.ConfigureStructuredExport(&GetRemoteServerChunkName, false, 0, 1.0);
 
-    rdcstr filename = FileIO::GetTempFolderFilename() + "/RenderDoc/RemoteServer_Server.log";
+    rdcstr filename = FileIO::GetTempFolderFilename() + "/SanQi Capture/RemoteServer_Server.log";
 
     RDCLOG("Logging remote server work to '%s'", filename.c_str());
 
@@ -343,7 +343,7 @@ static void ActiveRemoteClientThread(ClientThread *threadData,
     {
       reader.EndChunk();
 
-      std::map<RDCDriver, rdcstr> drivers = RenderDoc::Inst().GetRemoteDrivers();
+      std::map<RDCDriver, rdcstr> drivers = SanQiCapture::Inst().GetRemoteDrivers();
       uint32_t count = (uint32_t)drivers.size();
 
       WRITE_DATA_SCOPE();
@@ -474,7 +474,7 @@ static void ActiveRemoteClientThread(ClientThread *threadData,
     {
       reader.EndChunk();
 
-      rdcarray<GPUDevice> gpus = RenderDoc::Inst().GetAvailableGPUs();
+      rdcarray<GPUDevice> gpus = SanQiCapture::Inst().GetAvailableGPUs();
 
       {
         WRITE_DATA_SCOPE();
@@ -518,12 +518,12 @@ static void ActiveRemoteClientThread(ClientThread *threadData,
 
       if(result == ResultCode::Succeeded)
       {
-        if(RenderDoc::Inst().HasRemoteDriver(rdc->GetDriver()))
+        if(SanQiCapture::Inst().HasRemoteDriver(rdc->GetDriver()))
         {
           bool kill = false;
           float progress = 0.0f;
 
-          RenderDoc::Inst().SetProgressCallback<LoadProgress>([&progress](float p) { progress = p; });
+          SanQiCapture::Inst().SetProgressCallback<LoadProgress>([&progress](float p) { progress = p; });
 
           Threading::ThreadHandle ticker = Threading::CreateThread([&writer, &kill, &progress]() {
             while(!kill)
@@ -538,15 +538,15 @@ static void ActiveRemoteClientThread(ClientThread *threadData,
           });
 
           // if we have a replay driver, try to create it so we can display a local preview e.g.
-          if(RenderDoc::Inst().HasReplayDriver(rdc->GetDriver()))
+          if(SanQiCapture::Inst().HasReplayDriver(rdc->GetDriver()))
           {
-            result = RenderDoc::Inst().CreateReplayDriver(rdc, opts, &replayDriver);
+            result = SanQiCapture::Inst().CreateReplayDriver(rdc, opts, &replayDriver);
             if(replayDriver)
               remoteDriver = replayDriver;
           }
           else
           {
-            result = RenderDoc::Inst().CreateRemoteDriver(rdc, opts, &remoteDriver);
+            result = SanQiCapture::Inst().CreateRemoteDriver(rdc, opts, &remoteDriver);
           }
 
           if(result != ResultCode::Succeeded || remoteDriver == NULL)
@@ -566,7 +566,7 @@ static void ActiveRemoteClientThread(ClientThread *threadData,
             }
           }
 
-          RenderDoc::Inst().SetProgressCallback<LoadProgress>(RENDERDOC_ProgressCallback());
+          SanQiCapture::Inst().SetProgressCallback<LoadProgress>(RENDERDOC_ProgressCallback());
 
           kill = true;
           Threading::JoinThread(ticker);
@@ -932,7 +932,7 @@ static void ActiveRemoteClientThread(ClientThread *threadData,
   SAFE_DELETE(client);
 }
 
-void RenderDoc::BecomeRemoteServer(const rdcstr &listenhost, uint16_t port,
+void SanQiCapture::BecomeRemoteServer(const rdcstr &listenhost, uint16_t port,
                                    std::function<bool()> killReplay,
                                    RENDERDOC_PreviewWindowCallback previewWindow)
 {
@@ -1155,7 +1155,7 @@ RENDERDOC_CreateRemoteServerConnection(const rdcstr &URL, IRemoteServer **rend)
 
   rdcstr deviceID = host;
 
-  IDeviceProtocolHandler *protocol = RenderDoc::Inst().GetDeviceProtocol(deviceID);
+  IDeviceProtocolHandler *protocol = SanQiCapture::Inst().GetDeviceProtocol(deviceID);
 
   uint16_t port = RenderDoc_RemoteServerPort;
 
@@ -1285,7 +1285,7 @@ RemoteServer::RemoteServer(Network::Socket *sock, const rdcstr &deviceID)
     reader->ConfigureStructuredExport(&GetRemoteServerChunkName, false, 0, 1.0);
     writer->ConfigureStructuredExport(&GetRemoteServerChunkName, false, 0, 1.0);
 
-    rdcstr filename = FileIO::GetTempFolderFilename() + "/RenderDoc/RemoteServer_Client.log";
+    rdcstr filename = FileIO::GetTempFolderFilename() + "/SanQi Capture/RemoteServer_Client.log";
 
     RDCLOG("Logging remote server work to '%s'", filename.c_str());
 
@@ -1305,7 +1305,7 @@ RemoteServer::RemoteServer(Network::Socket *sock, const rdcstr &deviceID)
   writer->SetStreamingMode(true);
   reader->SetStreamingMode(true);
 
-  std::map<RDCDriver, rdcstr> m = RenderDoc::Inst().GetReplayDrivers();
+  std::map<RDCDriver, rdcstr> m = SanQiCapture::Inst().GetReplayDrivers();
 
   m_Proxies.reserve(m.size());
   for(auto it = m.begin(); it != m.end(); ++it)
@@ -1638,7 +1638,7 @@ rdcpair<ResultDetails, IReplayController *> RemoteServer::OpenCapture(
 
   LogReplayOptions(opts);
 
-  // if the proxy id is ~0U, then we just don't care so let RenderDoc pick the most
+  // if the proxy id is ~0U, then we just don't care so let SanQi Capture pick the most
   // appropriate supported proxy for the current platform.
   RDCDriver proxydrivertype = proxyid == ~0U ? RDCDriver::Unknown : m_Proxies[proxyid].first;
 
@@ -1697,7 +1697,7 @@ rdcpair<ResultDetails, IReplayController *> RemoteServer::OpenCapture(
   RDCLOG("Capture ready on replay host");
 
   IReplayDriver *proxyDriver = NULL;
-  result = RenderDoc::Inst().CreateProxyReplayDriver(proxydrivertype, &proxyDriver);
+  result = SanQiCapture::Inst().CreateProxyReplayDriver(proxydrivertype, &proxyDriver);
 
   if(result != ResultCode::Succeeded || !proxyDriver)
   {

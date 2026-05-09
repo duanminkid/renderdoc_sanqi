@@ -44,7 +44,7 @@ public:
 CGLError GL_EXPORT_NAME(CGLCreateContext)(CGLPixelFormatObj pix, CGLContextObj share,
                                           CGLContextObj *ctx)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!CGL.CGLCreateContext)
       CGL.PopulateForReplay();
@@ -95,7 +95,7 @@ CGLError GL_EXPORT_NAME(CGLCreateContext)(CGLPixelFormatObj pix, CGLContextObj s
 
 CGLError GL_EXPORT_NAME(CGLSetCurrentContext)(CGLContextObj ctx)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!CGL.CGLSetCurrentContext)
       CGL.PopulateForReplay();
@@ -162,7 +162,7 @@ CGLError GL_EXPORT_NAME(CGLSetCurrentContext)(CGLContextObj ctx)
 
 CGLError GL_EXPORT_NAME(CGLFlushDrawable)(CGLContextObj ctx)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!CGL.CGLFlushDrawable)
       CGL.PopulateForReplay();
@@ -216,7 +216,7 @@ static void CGLHooked(void *handle, const char *)
   EnableGLHooks();
 
   // as a hook callback this is only called while capturing
-  RDCASSERT(!RenderDoc::Inst().IsReplayApp());
+  RDCASSERT(!SanQiCapture::Inst().IsReplayApp());
 
 // fetch non-hooked functions into our dispatch table
 #define CGL_FETCH(func) CGL.func = &func;

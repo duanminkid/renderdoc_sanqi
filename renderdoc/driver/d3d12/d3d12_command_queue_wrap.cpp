@@ -830,7 +830,7 @@ void WrappedID3D12CommandQueue::ExecuteCommandListsInternal(UINT NumCommandLists
   if(!m_MarkedActive)
   {
     m_MarkedActive = true;
-    RenderDoc::Inst().AddActiveDriver(RDCDriver::D3D12, false);
+    SanQiCapture::Inst().AddActiveDriver(RDCDriver::D3D12, false);
   }
 
   if(IsActiveCapturing(m_State))
@@ -1481,7 +1481,7 @@ HRESULT STDMETHODCALLTYPE WrappedID3D12CommandQueue::Present(
     _In_ HWND hWindow, D3D12_DOWNLEVEL_PRESENT_FLAGS Flags)
 {
   // D3D12 on windows 7
-  if(!RenderDoc::Inst().GetCaptureOptions().allowVSync)
+  if(!SanQiCapture::Inst().GetCaptureOptions().allowVSync)
   {
     Flags = D3D12_DOWNLEVEL_PRESENT_FLAG_NONE;
   }
@@ -1529,13 +1529,13 @@ HRESULT STDMETHODCALLTYPE WrappedID3D12CommandQueue::Present(
     if(m_pPresentHWND != NULL)
     {
       Keyboard::RemoveInputWindow(WindowingSystem::Win32, m_pPresentHWND);
-      RenderDoc::Inst().RemoveFrameCapturer(
+      SanQiCapture::Inst().RemoveFrameCapturer(
           DeviceOwnedWindow(m_pDevice->GetFrameCapturerDevice(), m_pPresentHWND));
     }
 
     Keyboard::AddInputWindow(WindowingSystem::Win32, hWindow);
 
-    RenderDoc::Inst().AddFrameCapturer(
+    SanQiCapture::Inst().AddFrameCapturer(
         DeviceOwnedWindow(m_pDevice->GetFrameCapturerDevice(), hWindow),
         m_pDevice->GetFrameCapturer());
   }

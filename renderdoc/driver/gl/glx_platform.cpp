@@ -182,7 +182,7 @@ class GLXPlatform : public GLPlatform
     else if(window.system == WindowingSystem::Unknown || window.system == WindowingSystem::Headless)
     {
       // allow WindowingSystem::Unknown so that internally we can create a window-less context
-      dpy = RenderDoc::Inst().GetGlobalEnvironment().xlibDisplay;
+      dpy = SanQiCapture::Inst().GetGlobalEnvironment().xlibDisplay;
 
       if(dpy == NULL)
         return ret;
@@ -335,7 +335,7 @@ class GLXPlatform : public GLPlatform
 
   bool CanCreateGLContext()
   {
-    Display *dpy = RenderDoc::Inst().GetGlobalEnvironment().xlibDisplay;
+    Display *dpy = SanQiCapture::Inst().GetGlobalEnvironment().xlibDisplay;
 
     return GetGLHandle() != NULL && dpy != NULL;
   }
@@ -349,7 +349,7 @@ class GLXPlatform : public GLPlatform
       return false;
 
     // we need to check for the presence of EXT_create_context_es2_profile
-    Display *dpy = RenderDoc::Inst().GetGlobalEnvironment().xlibDisplay;
+    Display *dpy = SanQiCapture::Inst().GetGlobalEnvironment().xlibDisplay;
 
     const char *exts = GLX.glXQueryExtensionsString(dpy, DefaultScreen(dpy));
 
@@ -389,7 +389,7 @@ class GLXPlatform : public GLPlatform
     attribs[i++] = api == RDCDriver::OpenGLES ? GLX_CONTEXT_ES2_PROFILE_BIT_EXT
                                               : GLX_CONTEXT_CORE_PROFILE_BIT_ARB;
 
-    Display *dpy = RenderDoc::Inst().GetGlobalEnvironment().xlibDisplay;
+    Display *dpy = SanQiCapture::Inst().GetGlobalEnvironment().xlibDisplay;
 
     if(dpy == NULL)
     {
@@ -434,7 +434,7 @@ class GLXPlatform : public GLPlatform
       XFree(fbcfg);
       RETURN_ERROR_RESULT(
           ResultCode::APIHardwareUnsupported,
-          "Couldn't create 3.2 context - RenderDoc requires OpenGL 3.2 availability");
+          "Couldn't create 3.2 context - SanQi Capture requires OpenGL 3.2 availability");
     }
 
     GLCoreVersion = major * 10 + minor;
@@ -469,7 +469,7 @@ class GLXPlatform : public GLPlatform
         RDCLOG(
             "If you hit a crash after this message, try setting __GL_THREADED_OPTIMIZATIONS=0 or "
             "upgrade to 381.x or newer.");
-        RDCLOG("See https://github.com/baldurk/renderdoc/issues/609 for more information.");
+        RDCLOG("See https://www.sanqitech.internal/ for more information.");
       }
     }
 
@@ -499,7 +499,7 @@ GLPlatform &GetGLPlatform()
 
 bool GLXDispatchTable::PopulateForReplay()
 {
-  RDCASSERT(RenderDoc::Inst().IsReplayApp());
+  RDCASSERT(SanQiCapture::Inst().IsReplayApp());
 
   void *handle = GetGLHandle();
 

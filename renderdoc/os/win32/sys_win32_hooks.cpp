@@ -300,11 +300,11 @@ private:
 
       // inherit logfile and capture options
       rdcpair<RDResult, uint32_t> res = Process::InjectIntoProcess(
-          lpProcessInformation->dwProcessId, {}, RenderDoc::Inst().GetCaptureFileTemplate(),
-          RenderDoc::Inst().GetCaptureOptions(), false);
+          lpProcessInformation->dwProcessId, {}, SanQiCapture::Inst().GetCaptureFileTemplate(),
+          SanQiCapture::Inst().GetCaptureOptions(), false);
 
       if(res.first == ResultCode::Succeeded)
-        RenderDoc::Inst().AddChildProcess((uint32_t)lpProcessInformation->dwProcessId, res.second);
+        SanQiCapture::Inst().AddChildProcess((uint32_t)lpProcessInformation->dwProcessId, res.second);
     }
 
     if(resume)
@@ -326,7 +326,7 @@ private:
 
   static bool ShouldInject(LPCWSTR lpApplicationName, LPCWSTR lpCommandLine)
   {
-    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren)
+    if(!SanQiCapture::Inst().GetCaptureOptions().hookIntoChildren)
       return false;
 
     bool inject = true;
@@ -337,7 +337,7 @@ private:
     {
       rdcstr app = strlower(StringFormat::Wide2UTF8(lpApplicationName));
 
-      if(app.contains("renderdoccmd.exe") || app.contains("qrenderdoc.exe"))
+      if(app.contains("sanqicapture.exe") || app.contains("qsanqiInjectTool.exe"))
       {
         inject = false;
       }
@@ -346,7 +346,7 @@ private:
     {
       rdcstr cmd = strlower(StringFormat::Wide2UTF8(lpCommandLine));
 
-      if(cmd.contains("renderdoccmd.exe") || cmd.contains("qrenderdoc.exe"))
+      if(cmd.contains("sanqicapture.exe") || cmd.contains("qsanqiInjectTool.exe"))
       {
         inject = false;
       }
@@ -357,7 +357,7 @@ private:
 
   static bool ShouldInject(LPCSTR lpApplicationName, LPCSTR lpCommandLine)
   {
-    if(!RenderDoc::Inst().GetCaptureOptions().hookIntoChildren)
+    if(!SanQiCapture::Inst().GetCaptureOptions().hookIntoChildren)
       return false;
 
     return ShouldInject(lpApplicationName ? StringFormat::UTF82Wide(lpApplicationName).c_str() : NULL,

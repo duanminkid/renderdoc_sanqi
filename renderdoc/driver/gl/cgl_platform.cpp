@@ -100,7 +100,7 @@ class CGLPlatform : public GLPlatform
 {
   bool MakeContextCurrent(GLWindowingData data)
   {
-    if(RenderDoc::Inst().IsReplayApp())
+    if(SanQiCapture::Inst().IsReplayApp())
     {
       NSGL_makeCurrentContext(data.nsgl_ctx);
       return true;
@@ -123,7 +123,7 @@ class CGLPlatform : public GLPlatform
 
     ret.ctx = NULL;
 
-    if(RenderDoc::Inst().IsReplayApp())
+    if(SanQiCapture::Inst().IsReplayApp())
     {
       RDCASSERT(share.nsgl_ctx);
       ret.nsgl_ctx = NSGL_createContext(NULL, share.nsgl_ctx);
@@ -142,7 +142,7 @@ class CGLPlatform : public GLPlatform
 
   void DeleteClonedContext(GLWindowingData context)
   {
-    if(RenderDoc::Inst().IsReplayApp())
+    if(SanQiCapture::Inst().IsReplayApp())
     {
       NSGL_destroyContext(context.nsgl_ctx);
     }
@@ -249,7 +249,7 @@ GLPlatform &GetGLPlatform()
 
 bool CGLDispatchTable::PopulateForReplay()
 {
-  RDCASSERT(RenderDoc::Inst().IsReplayApp());
+  RDCASSERT(SanQiCapture::Inst().IsReplayApp());
 
   RDCDEBUG("Initialising GL function pointers");
 

@@ -46,9 +46,9 @@ RDOC_CONFIG(
 static VkApplicationInfo renderdocAppInfo = {
     VK_STRUCTURE_TYPE_APPLICATION_INFO,
     NULL,
-    "RenderDoc Capturing App",
+    "SanQi Capture Capturing App",
     VK_MAKE_VERSION(RENDERDOC_VERSION_MAJOR, RENDERDOC_VERSION_MINOR, 0),
-    "RenderDoc",
+    "SanQi Capture",
     VK_MAKE_VERSION(RENDERDOC_VERSION_MAJOR, RENDERDOC_VERSION_MINOR, 0),
     VK_API_VERSION_1_0,
 };
@@ -580,7 +580,7 @@ VkResult WrappedVulkan::vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo
 
   const bool internalInstance =
       (pCreateInfo->pApplicationInfo && pCreateInfo->pApplicationInfo->pApplicationName &&
-       rdcstr(pCreateInfo->pApplicationInfo->pApplicationName) == "RenderDoc forced instance");
+       rdcstr(pCreateInfo->pApplicationInfo->pApplicationName) == "SanQi Capture forced instance");
 
   VkLayerInstanceCreateInfo *layerCreateInfo = (VkLayerInstanceCreateInfo *)pCreateInfo->pNext;
 
@@ -620,7 +620,7 @@ VkResult WrappedVulkan::vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo
           (VkDebugReportCallbackCreateInfoEXT *)pCreateInfo->pNext;
 
       rdcstr msg =
-          "RenderDoc's layer should NEVER be activated manually. Do not include it in "
+          "SanQi Capture's layer should NEVER be activated manually. Do not include it in "
           "vkCreateInstance's instance layers.";
 
       RDCERR("%s", msg.c_str());
@@ -629,7 +629,7 @@ VkResult WrappedVulkan::vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo
       {
         if(report->sType == VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT)
           report->pfnCallback(VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_INSTANCE_EXT,
-                              0, 1, 1, "RDOC", msg.c_str(), report->pUserData);
+                              0, 1, 1, "SQC", msg.c_str(), report->pUserData);
 
         report = (VkDebugReportCallbackCreateInfoEXT *)report->pNext;
       }
@@ -664,24 +664,24 @@ VkResult WrappedVulkan::vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo
   {
     if(!IsSupportedExtension(modifiedCreateInfo.ppEnabledExtensionNames[i]))
     {
-      RDCERR("RenderDoc does not support instance extension '%s'.",
+      RDCERR("SanQi Capture does not support instance extension '%s'.",
              modifiedCreateInfo.ppEnabledExtensionNames[i]);
       RDCERR(
           "For KHR/EXT extensions file an issue on github to request support: "
-          "https://github.com/baldurk/renderdoc");
+          "https://www.sanqitech.internal/");
 
       // see if any debug report callbacks were passed in the pNext chain
       VkDebugReportCallbackCreateInfoEXT *report =
           (VkDebugReportCallbackCreateInfoEXT *)pCreateInfo->pNext;
 
-      rdcstr msg = StringFormat::Fmt("RenderDoc does not support requested instance extension: %s.",
+      rdcstr msg = StringFormat::Fmt("SanQi Capture does not support requested instance extension: %s.",
                                      modifiedCreateInfo.ppEnabledExtensionNames[i]);
 
       while(report)
       {
         if(report->sType == VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT)
           report->pfnCallback(VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_INSTANCE_EXT,
-                              0, 1, 1, "RDOC", msg.c_str(), report->pUserData);
+                              0, 1, 1, "SQC", msg.c_str(), report->pUserData);
 
         report = (VkDebugReportCallbackCreateInfoEXT *)report->pNext;
       }
@@ -797,7 +797,7 @@ VkResult WrappedVulkan::vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo
 
   bool brokenGetDeviceProcAddr = false;
 
-  // override applicationInfo with RenderDoc's, but preserve apiVersion
+  // override applicationInfo with SanQi Capture's, but preserve apiVersion
   if(modifiedCreateInfo.pApplicationInfo)
   {
     if(modifiedCreateInfo.pApplicationInfo->pEngineName &&
@@ -824,7 +824,7 @@ VkResult WrappedVulkan::vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo
   }
 
   // if we forced on API validation, it's also available
-  m_LayersEnabled[VkCheckLayer_unique_objects] |= RenderDoc::Inst().GetCaptureOptions().apiValidation;
+  m_LayersEnabled[VkCheckLayer_unique_objects] |= SanQiCapture::Inst().GetCaptureOptions().apiValidation;
 
   VkResult ret = createFunc(&modifiedCreateInfo, NULL, pInstance);
 
@@ -912,7 +912,7 @@ VkResult WrappedVulkan::vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo
   }
   else
   {
-    RenderDoc::Inst().AddDeviceFrameCapturer(LayerDisp(m_Instance), this);
+    SanQiCapture::Inst().AddDeviceFrameCapturer(LayerDisp(m_Instance), this);
   }
 
   m_DbgReportCallback = VK_NULL_HANDLE;
@@ -1115,7 +1115,7 @@ void WrappedVulkan::vkDestroyInstance(VkInstance instance, const VkAllocationCal
   // application is well behaved. If not, we just leak.
 
   ObjDisp(m_Instance)->DestroyInstance(Unwrap(m_Instance), NULL);
-  RenderDoc::Inst().RemoveDeviceFrameCapturer(LayerDisp(m_Instance));
+  SanQiCapture::Inst().RemoveDeviceFrameCapturer(LayerDisp(m_Instance));
 
   GetResourceManager()->ReleaseWrappedResource(m_Instance);
   m_Instance = VK_NULL_HANDLE;
@@ -1633,7 +1633,7 @@ bool WrappedVulkan::SelectGraphicsComputeQueue(const rdcarray<VkQueueFamilyPrope
     {
       SET_ERROR_RESULT(
           m_FailedReplayResult, ResultCode::APIHardwareUnsupported,
-          "Can't add a queue with required properties for RenderDoc! Unsupported configuration");
+          "Can't add a queue with required properties for SanQi Capture! Unsupported configuration");
       return false;
     }
 
@@ -1671,7 +1671,7 @@ void WrappedVulkan::SendUserDebugMessage(const rdcstr &msg)
     for(UserDebugReportCallbackData *cb : m_ReportCallbacks)
     {
       cb->createInfo.pfnCallback(VK_DEBUG_REPORT_ERROR_BIT_EXT,
-                                 VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT, 0, 1, 1, "RDOC",
+                                 VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT, 0, 1, 1, "SQC",
                                  msg.c_str(), cb->createInfo.pUserData);
     }
 
@@ -2230,7 +2230,7 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
     {
       SET_ERROR_RESULT(
           m_FailedReplayResult, ResultCode::APIHardwareUnsupported,
-          "Can't add a queue with required properties for RenderDoc! Unsupported configuration");
+          "Can't add a queue with required properties for SanQi Capture! Unsupported configuration");
       return false;
     }
 
@@ -3721,7 +3721,7 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
           "robustBufferAccess is available, but cannot be enabled due to "
           "robustBufferAccessUpdateAfterBind not being avilable and some UpdateAfterBind features "
           "being enabled. "
-          "out of bounds access due to bugs in application or RenderDoc may cause crashes");
+          "out of bounds access due to bugs in application or SanQi Capture may cause crashes");
     }
     else
     {
@@ -3731,7 +3731,7 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       else
         RDCWARN(
             "robustBufferAccess = false, out of bounds access due to bugs in application or "
-            "RenderDoc may cause crashes");
+            "SanQi Capture may cause crashes");
     }
 
     if(availFeatures.shaderInt64)
@@ -4575,14 +4575,14 @@ VkResult WrappedVulkan::vkCreateDevice(VkPhysicalDevice physicalDevice,
   {
     if(!IsSupportedExtension(createInfo.ppEnabledExtensionNames[i]))
     {
-      RDCERR("RenderDoc does not support device extension '%s'.",
+      RDCERR("SanQi Capture does not support device extension '%s'.",
              createInfo.ppEnabledExtensionNames[i]);
       RDCERR(
           "For KHR/EXT extensions file an issue on github to request support: "
-          "https://github.com/baldurk/renderdoc");
+          "https://www.sanqitech.internal/");
 
       SendUserDebugMessage(
-          StringFormat::Fmt("RenderDoc does not support requested device extension: %s.",
+          StringFormat::Fmt("SanQi Capture does not support requested device extension: %s.",
                             createInfo.ppEnabledExtensionNames[i]));
 
       return VK_ERROR_EXTENSION_NOT_PRESENT;
@@ -4591,7 +4591,7 @@ VkResult WrappedVulkan::vkCreateDevice(VkPhysicalDevice physicalDevice,
 
   if(m_Device != VK_NULL_HANDLE)
   {
-    SendUserDebugMessage("RenderDoc does not support multiple simultaneous logical devices.");
+    SendUserDebugMessage("SanQi Capture does not support multiple simultaneous logical devices.");
     return VK_ERROR_INITIALIZATION_FAILED;
   }
 
@@ -4787,7 +4787,7 @@ VkResult WrappedVulkan::vkCreateDevice(VkPhysicalDevice physicalDevice,
         "robustBufferAccess is available, but cannot be enabled due to "
         "robustBufferAccessUpdateAfterBind not being avilable and some UpdateAfterBind features "
         "being enabled. "
-        "out of bounds access due to bugs in application or RenderDoc may cause crashes");
+        "out of bounds access due to bugs in application or SanQi Capture may cause crashes");
 
     for(const char *e : Extensions)
     {
@@ -4805,7 +4805,7 @@ VkResult WrappedVulkan::vkCreateDevice(VkPhysicalDevice physicalDevice,
     else
       RDCWARN(
           "robustBufferAccess = false, out of bounds access due to bugs in application or "
-          "RenderDoc may cause crashes");
+          "SanQi Capture may cause crashes");
   }
 
   // enable this feature as it's needed at capture time to save MSAA initial states
@@ -5240,10 +5240,10 @@ VkResult WrappedVulkan::vkCreateDevice(VkPhysicalDevice physicalDevice,
     if(m_PhysicalDeviceData.driverProps.driverID == VK_DRIVER_ID_MESA_RADV &&
        m_PhysicalDeviceData.props.vendorID == 0x1002 && m_PhysicalDeviceData.props.deviceID == 0x163F)
     {
-      CaptureOptions opts = RenderDoc::Inst().GetCaptureOptions();
+      CaptureOptions opts = SanQiCapture::Inst().GetCaptureOptions();
       if(opts.softMemoryLimit == 0)
         opts.softMemoryLimit = 200;
-      RenderDoc::Inst().SetCaptureOptions(opts);
+      SanQiCapture::Inst().SetCaptureOptions(opts);
       RDCLOG("Forcing 200MB soft memory limit");
     }
 

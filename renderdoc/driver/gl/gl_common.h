@@ -45,7 +45,7 @@ DECLARE_REFLECTION_ENUM(RDCGLenum);
 // We try to replay using EGL first on all platforms, on windows this means having a libEGL.dll
 // available from an OpenGL ES emulator. This is treated as a plugin but it doesn't ship with
 // renderdoc, so if you want to replay GLES captures using such an emulator you need to drop the
-// appropriate libEGL.dll into plugins/gles/ in your RenderDoc folder.
+// appropriate libEGL.dll into plugins/gles/ in your SanQi Capture folder.
 #define RENDERDOC_SUPPORT_GL
 #define RENDERDOC_SUPPORT_GLES
 #define RENDERDOC_SUPPORT_EGL

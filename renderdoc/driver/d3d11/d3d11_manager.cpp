@@ -33,7 +33,7 @@ byte D3D11ResourceRecord::ShadowPointerData::markerValue[32] = {
 
 void D3D11ResourceManager::SetInternalResource(ID3D11DeviceChild *res)
 {
-  if(res && !RenderDoc::Inst().IsReplayApp())
+  if(res && !SanQiCapture::Inst().IsReplayApp())
   {
     D3D11ResourceRecord *record = GetResourceRecord(GetIDForDeviceChild(res));
     if(record)

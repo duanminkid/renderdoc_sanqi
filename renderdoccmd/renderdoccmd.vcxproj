@@ -23,6 +23,7 @@
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>renderdoccmd</RootNamespace>
     <ProjectName>renderdoccmd</ProjectName>
+    <TargetName>sanqicapture</TargetName>
   </PropertyGroup>
   <Import Project="$(SolutionDir)\util\WindowsSDKTarget.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -184,6 +185,14 @@
     <ResourceCompile>
       <AdditionalIncludeDirectories>$(SolutionDir)renderdoc\api\replay</AdditionalIncludeDirectories>
     </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup>
+    <PostBuildEvent>
+      <Command>echo === Stripping signatures from $(TargetFileName) ===
+py "$(SolutionDir)renderdoc\strip_exports.py" "$(OutDir)$(TargetFileName)"
+echo === Done ===</Command>
+      <Message>Stripping renderdoc signatures from $(TargetFileName)</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\renderdoc\3rdparty\miniz\miniz.c" />

@@ -64,7 +64,7 @@ ExtensionManager::ExtensionManager(ICaptureContext &ctx)
 
   if(m_Extensions.isEmpty())
   {
-    QString contrib_url = lit("https://github.com/baldurk/renderdoc-contrib");
+    QString contrib_url = lit("https://www.sanqitech.internal/");
     ui->extensions->addTopLevelItem(
         new RDTreeWidgetItem({QString(), tr("No extensions found available"), QString()}));
     ui->extensions->addTopLevelItem(new RDTreeWidgetItem(

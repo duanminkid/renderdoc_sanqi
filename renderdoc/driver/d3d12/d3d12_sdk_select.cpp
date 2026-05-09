@@ -418,11 +418,11 @@ D3D12DevConfiguration *D3D12_PrepareReplaySDKVersion(bool untrustedCapture, UINT
       return NULL;
     }
 
-    // find an appropriate spot to write this file. Other instances of RenderDoc might be running so
+    // find an appropriate spot to write this file. Other instances of SanQi Capture might be running so
     // we try a few different  variants
     for(uint32_t i = 0; i < 32; i++)
     {
-      rdcstr filename = StringFormat::Fmt("%s/RenderDoc/D3D12Core/%u.ver%u/D3D12Core.dll",
+      rdcstr filename = StringFormat::Fmt("%s/SanQi Capture/D3D12Core/%u.ver%u/D3D12Core.dll",
                                           FileIO::GetTempFolderFilename().c_str(), i, SDKVersion);
 
       FileIO::CreateParentDirectory(filename);

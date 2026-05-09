@@ -2841,8 +2841,8 @@ void ReplayProxy::RefreshPreviewWindow()
     int32_t winHeight = 1;
     m_Replay->GetOutputWindowDimensions(m_PreviewOutput, winWidth, winHeight);
 
-    m_Replay->RenderCheckerboard(RenderDoc::Inst().DarkCheckerboardColor(),
-                                 RenderDoc::Inst().LightCheckerboardColor());
+    m_Replay->RenderCheckerboard(SanQiCapture::Inst().DarkCheckerboardColor(),
+                                 SanQiCapture::Inst().LightCheckerboardColor());
 
     const ActionDescription *curDraw = FindAction(m_FrameRecord.actionList, m_EventID);
 

@@ -55,17 +55,17 @@ struct RenderDocAnalysis : IDXGraphicsAnalysis
   void STDMETHODCALLTYPE BeginCapture()
   {
     DeviceOwnedWindow devWnd;
-    RenderDoc::Inst().GetActiveWindow(devWnd);
+    SanQiCapture::Inst().GetActiveWindow(devWnd);
 
-    RenderDoc::Inst().StartFrameCapture(devWnd);
+    SanQiCapture::Inst().StartFrameCapture(devWnd);
   }
 
   void STDMETHODCALLTYPE EndCapture()
   {
     DeviceOwnedWindow devWnd;
-    RenderDoc::Inst().GetActiveWindow(devWnd);
+    SanQiCapture::Inst().GetActiveWindow(devWnd);
 
-    RenderDoc::Inst().EndFrameCapture(devWnd);
+    SanQiCapture::Inst().EndFrameCapture(devWnd);
   }
 };
 
@@ -321,7 +321,7 @@ private:
     if(riid == __uuidof(IDXGIInfoQueue))
     {
       RDCWARN(
-          "Returning a dummy IDXGIInfoQueue that does nothing. RenderDoc takes control of the "
+          "Returning a dummy IDXGIInfoQueue that does nothing. SanQi Capture takes control of the "
           "debug layer.");
       dxgihooks.m_DummyInfoQueue.AddRef();
       if(ppDebug)
@@ -352,7 +352,7 @@ private:
     if(riid == __uuidof(IDXGIInfoQueue))
     {
       RDCWARN(
-          "Returning a dummy IDXGIInfoQueue that does nothing. RenderDoc takes control of the "
+          "Returning a dummy IDXGIInfoQueue that does nothing. SanQi Capture takes control of the "
           "debug layer.");
       dxgihooks.m_DummyInfoQueue.AddRef();
       if(ppDebug)

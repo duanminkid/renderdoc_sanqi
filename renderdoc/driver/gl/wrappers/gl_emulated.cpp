@@ -3857,7 +3857,7 @@ void GLDispatchTable::EmulateRequiredExtensions()
   }
 
   // only emulate ARB_vertex_attrib_binding on replay
-  if(!HasExt[ARB_vertex_attrib_binding] && RenderDoc::Inst().IsReplayApp())
+  if(!HasExt[ARB_vertex_attrib_binding] && SanQiCapture::Inst().IsReplayApp())
   {
     RDCLOG("Emulating ARB_vertex_attrib_binding");
 
@@ -3952,7 +3952,7 @@ void GLDispatchTable::EmulateRequiredExtensions()
   // We ALWAYS emulate on replay since the EXT_dsa functions are too buggy on drivers like NV to be
   // relied upon to work without messing up. We only 'promote' to EXT_dsa on replay so we can still
   // leave the functions as they are during capture.
-  if(!HasExt[EXT_direct_state_access] || RenderDoc::Inst().IsReplayApp())
+  if(!HasExt[EXT_direct_state_access] || SanQiCapture::Inst().IsReplayApp())
   {
     RDCLOG("Emulating EXT_direct_state_access");
     EMULATE_FUNC(glCheckNamedFramebufferStatusEXT);
@@ -4220,7 +4220,7 @@ void MakeOfflineShaderReflection(ShaderStage stage, const rdcstr &source, const 
                                  ShaderReflection &refl)
 {
   rdcspv::Init();
-  RenderDoc::Inst().RegisterShutdownFunction(&rdcspv::Shutdown);
+  SanQiCapture::Inst().RegisterShutdownFunction(&rdcspv::Shutdown);
 
   RDCASSERT(entryPoint == "main");
 
@@ -4283,10 +4283,10 @@ void MakeOnlineShaderReflection(ShaderStage stage, const rdcstr &source, const r
 
   RDCASSERT(entryPoint == "main");
 
-  std::map<RDCDriver, rdcstr> replays = RenderDoc::Inst().GetReplayDrivers();
+  std::map<RDCDriver, rdcstr> replays = SanQiCapture::Inst().GetReplayDrivers();
 
   if(replays.find(RDCDriver::OpenGL) != replays.end())
-    status = RenderDoc::Inst().CreateProxyReplayDriver(RDCDriver::OpenGL, &driver);
+    status = SanQiCapture::Inst().CreateProxyReplayDriver(RDCDriver::OpenGL, &driver);
 
   if(status != ResultCode::Succeeded)
   {
@@ -4360,7 +4360,7 @@ void main() {
 )";
 
     rdcspv::Init();
-    RenderDoc::Inst().RegisterShutdownFunction(&rdcspv::Shutdown);
+    SanQiCapture::Inst().RegisterShutdownFunction(&rdcspv::Shutdown);
 
     // as a hack, create a local 'driver' and just populate m_Programs with what we want.
     GLDummyPlatform dummy;

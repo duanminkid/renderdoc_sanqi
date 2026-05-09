@@ -43,7 +43,7 @@ public:
   // when fetching dispatch tables or hooking.
   bool eglDisabled = false;
 
-  // we use this to check if we've seen a context be created. If we HAVEN'T then RenderDoc was
+  // we use this to check if we've seen a context be created. If we HAVEN'T then SanQi Capture was
   // probably injected after the start of the application so we should not call our hooked functions
   // - things will go wrong like missing context data, references to resources we don't know about
   // and hooked functions via wglGetProcAddress being NULL and never being called by the app.
@@ -346,7 +346,7 @@ static HGLRC WINAPI wglCreateContextAttribsARB_hooked(HDC dc, HGLRC hShareContex
 
       if(name == WGL_CONTEXT_FLAGS_ARB)
       {
-        if(RenderDoc::Inst().GetCaptureOptions().apiValidation)
+        if(SanQiCapture::Inst().GetCaptureOptions().apiValidation)
           val |= WGL_CONTEXT_DEBUG_BIT_ARB;
         else
           val &= ~WGL_CONTEXT_DEBUG_BIT_ARB;
@@ -361,7 +361,7 @@ static HGLRC WINAPI wglCreateContextAttribsARB_hooked(HDC dc, HGLRC hShareContex
       attribVec.push_back(val);
     }
 
-    if(!flagsFound && RenderDoc::Inst().GetCaptureOptions().apiValidation)
+    if(!flagsFound && SanQiCapture::Inst().GetCaptureOptions().apiValidation)
     {
       attribVec.push_back(WGL_CONTEXT_FLAGS_ARB);
       attribVec.push_back(WGL_CONTEXT_DEBUG_BIT_ARB);
@@ -539,7 +539,7 @@ static BOOL WINAPI wglSwapMultipleBuffers_hooked(UINT numSwaps, CONST WGLSWAP *p
 static LONG WINAPI ChangeDisplaySettingsA_hooked(DEVMODEA *mode, DWORD flags)
 {
   if((flags & CDS_FULLSCREEN) == 0 || wglhook.eglDisabled ||
-     RenderDoc::Inst().GetCaptureOptions().allowFullscreen)
+     SanQiCapture::Inst().GetCaptureOptions().allowFullscreen)
     return WGL.ChangeDisplaySettingsA(mode, flags);
 
   return DISP_CHANGE_SUCCESSFUL;
@@ -548,7 +548,7 @@ static LONG WINAPI ChangeDisplaySettingsA_hooked(DEVMODEA *mode, DWORD flags)
 static LONG WINAPI ChangeDisplaySettingsW_hooked(DEVMODEW *mode, DWORD flags)
 {
   if((flags & CDS_FULLSCREEN) == 0 || wglhook.eglDisabled ||
-     RenderDoc::Inst().GetCaptureOptions().allowFullscreen)
+     SanQiCapture::Inst().GetCaptureOptions().allowFullscreen)
     return WGL.ChangeDisplaySettingsW(mode, flags);
 
   return DISP_CHANGE_SUCCESSFUL;
@@ -558,7 +558,7 @@ static LONG WINAPI ChangeDisplaySettingsExA_hooked(LPCSTR devname, DEVMODEA *mod
                                                    DWORD flags, LPVOID param)
 {
   if((flags & CDS_FULLSCREEN) == 0 || wglhook.eglDisabled ||
-     RenderDoc::Inst().GetCaptureOptions().allowFullscreen)
+     SanQiCapture::Inst().GetCaptureOptions().allowFullscreen)
     return WGL.ChangeDisplaySettingsExA(devname, mode, wnd, flags, param);
 
   return DISP_CHANGE_SUCCESSFUL;
@@ -568,7 +568,7 @@ static LONG WINAPI ChangeDisplaySettingsExW_hooked(LPCWSTR devname, DEVMODEW *mo
                                                    DWORD flags, LPVOID param)
 {
   if((flags & CDS_FULLSCREEN) == 0 || wglhook.eglDisabled ||
-     RenderDoc::Inst().GetCaptureOptions().allowFullscreen)
+     SanQiCapture::Inst().GetCaptureOptions().allowFullscreen)
     return WGL.ChangeDisplaySettingsExW(devname, mode, wnd, flags, param);
 
   return DISP_CHANGE_SUCCESSFUL;
@@ -576,7 +576,7 @@ static LONG WINAPI ChangeDisplaySettingsExW_hooked(LPCWSTR devname, DEVMODEW *mo
 
 static PROC WINAPI wglGetProcAddress_hooked(const char *func)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!WGL.wglGetProcAddress)
       WGL.PopulateForReplay();
@@ -639,7 +639,7 @@ static void WGLHooked(void *handle, const char *libName)
   RDCDEBUG("WGL library hooked");
 
   // as a hook callback this is only called while capturing
-  RDCASSERT(!RenderDoc::Inst().IsReplayApp());
+  RDCASSERT(!SanQiCapture::Inst().IsReplayApp());
 
 // fetch non-hooked functions into our dispatch table
 #define WGL_FETCH(library, func) \

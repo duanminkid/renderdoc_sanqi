@@ -2170,16 +2170,16 @@ VkResult WrappedVulkan::vkCopyMemoryToImage(VkDevice device,
   SCOPED_DBG_SINK();
 
   // Calls with VK_HOST_IMAGE_COPY_MEMCPY_BIT are not supported, and are not expected from typical
-  // applications. RenderDoc sets optimalTilingLayoutUUID to a fake UUID, meaning the applications
+  // applications. SanQi Capture sets optimalTilingLayoutUUID to a fake UUID, meaning the applications
   // cannot have any preconceived notion of what the preswizzled image data should look like and
   // must provide linear data.
   //
   // Technically dropping these calls is a spec violation, since an application may read back
   // preswizzled data with memcpy and provide that again to another VkImage in the same run. Outside
   // of tests, this usage is highly unlikely. On the other hand, supporting
-  // VK_HOST_IMAGE_COPY_MEMCPY_BIT complicates RenderDoc as the size of preswizzled memory is not
+  // VK_HOST_IMAGE_COPY_MEMCPY_BIT complicates SanQi Capture as the size of preswizzled memory is not
   // obviously known and requires a driver call using VkSubresourceHostMemcpySize at inconvenient
-  // times. Additionally, it reduces the portability of RenderDoc captures.
+  // times. Additionally, it reduces the portability of SanQi Capture captures.
   //
   // Given the little benefit from this complication, it's decided not to support this bit.
   if((pCopyMemoryToImageInfo->flags & VK_HOST_IMAGE_COPY_MEMCPY_BIT) != 0)
@@ -2359,7 +2359,7 @@ VkBool32 VKAPI_PTR UserDebugReportCallback(VkDebugReportFlagsEXT flags,
 {
   UserDebugReportCallbackData *user = (UserDebugReportCallbackData *)pUserData;
 
-  if(RenderDoc::Inst().GetCaptureOptions().debugOutputMute)
+  if(SanQiCapture::Inst().GetCaptureOptions().debugOutputMute)
   {
     if(user->muteWarned)
       return false;
@@ -2378,11 +2378,11 @@ VkBool32 VKAPI_PTR UserDebugReportCallback(VkDebugReportFlagsEXT flags,
                   : VK_DEBUG_REPORT_DEBUG_BIT_EXT;
 
       user->createInfo.pfnCallback(flags, VK_DEBUG_REPORT_OBJECT_TYPE_INSTANCE_EXT,
-                                   (uint64_t)user->wrappedInstance, 1, 1, "RDOC",
-                                   "While debugging through RenderDoc, debug output through "
+                                   (uint64_t)user->wrappedInstance, 1, 1, "SQC",
+                                   "While debugging through SanQi Capture, debug output through "
                                    "validation layers is suppressed.\n"
                                    "To show debug output look at the 'DebugOutputMute' capture "
-                                   "option in RenderDoc's API, but "
+                                   "option in SanQi Capture's API, but "
                                    "be aware of false positives from the validation layers.",
                                    user->createInfo.pUserData);
     }
@@ -2401,7 +2401,7 @@ VkBool32 VKAPI_PTR UserDebugUtilsCallback(VkDebugUtilsMessageSeverityFlagBitsEXT
 {
   UserDebugUtilsCallbackData *user = (UserDebugUtilsCallbackData *)pUserData;
 
-  if(RenderDoc::Inst().GetCaptureOptions().debugOutputMute)
+  if(SanQiCapture::Inst().GetCaptureOptions().debugOutputMute)
   {
     if(user->muteWarned)
       return false;
@@ -2426,9 +2426,9 @@ VkBool32 VKAPI_PTR UserDebugUtilsCallback(VkDebugUtilsMessageSeverityFlagBitsEXT
       data.messageIdNumber = 1;
       data.pMessageIdName = NULL;
       data.pMessage =
-          "While debugging through RenderDoc, debug output through validation layers is "
+          "While debugging through SanQi Capture, debug output through validation layers is "
           "suppressed.\n"
-          "To show debug output look at the 'DebugOutputMute' capture option in RenderDoc's API, "
+          "To show debug output look at the 'DebugOutputMute' capture option in SanQi Capture's API, "
           "but be aware of false positives from the validation layers.";
       data.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CALLBACK_DATA_EXT;
 
@@ -2449,7 +2449,7 @@ VkResult WrappedVulkan::vkCreateDebugReportCallbackEXT(
 {
   // we create an interception object here so that we can dynamically check the state of API
   // messages being muted, since it's quite likely that the application will initialise Vulkan (and
-  // so create a debug report callback) before it messes with RenderDoc's API to unmute messages.
+  // so create a debug report callback) before it messes with SanQi Capture's API to unmute messages.
   UserDebugReportCallbackData *user = new UserDebugReportCallbackData();
   user->wrappedInstance = instance;
   user->createInfo = *pCreateInfo;
@@ -2842,7 +2842,7 @@ VkResult WrappedVulkan::vkCreateDebugUtilsMessengerEXT(
 {
   // we create an interception object here so that we can dynamically check the state of API
   // messages being muted, since it's quite likely that the application will initialise Vulkan (and
-  // so create a debug report callback) before it messes with RenderDoc's API to unmute messages.
+  // so create a debug report callback) before it messes with SanQi Capture's API to unmute messages.
   UserDebugUtilsCallbackData *user = new UserDebugUtilsCallbackData();
   user->createInfo = *pCreateInfo;
   user->muteWarned = false;

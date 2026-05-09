@@ -457,7 +457,7 @@ enum class LOGTYPE_ENUM_NAME : uint32_t
 void rdclogprint_int(LogType type, const char *fullMsg, const char *msg);
 
 #if !defined(RDCLOG_PROJECT)
-#define RDCLOG_PROJECT "RDOC"
+#define RDCLOG_PROJECT "SQC"
 #endif
 
 // printf() style main logger function
@@ -466,9 +466,18 @@ void rdclog_direct(time_t utcTime, uint32_t pid, LogType type, const char *proje
 
 #define FILL_AUTO_VALUE 0x10203040
 
+// In release builds strip __FILE__ to remove source path strings from binary
+#if ENABLED(RDOC_RELEASE)
+#define RDCLOG_FILE ""
+#define RDCLOG_LINE 0
+#else
+#define RDCLOG_FILE __FILE__
+#define RDCLOG_LINE __LINE__
+#endif
+
 #define rdclog(type, ...)                                                                 \
-  rdclog_direct(time_t(FILL_AUTO_VALUE), FILL_AUTO_VALUE, type, RDCLOG_PROJECT, __FILE__, \
-                __LINE__, __VA_ARGS__)
+  rdclog_direct(time_t(FILL_AUTO_VALUE), FILL_AUTO_VALUE, type, RDCLOG_PROJECT, RDCLOG_FILE, \
+                RDCLOG_LINE, __VA_ARGS__)
 
 const char *rdclog_getfilename();
 void rdclog_filename(const char *filename);

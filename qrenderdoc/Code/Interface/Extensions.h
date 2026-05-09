@@ -364,11 +364,11 @@ DECLARE_REFLECTION_STRUCT(ExtensionMetadata);
 typedef struct _object PyObject;
 
 DOCUMENT(R"(Python can have direct access to Qt via PySide2, but this is not always available in
-all RenderDoc builds. To aid extensions to manipulate widgets in a simple but portable fashion this
-helper exposes a small subset of Qt via RenderDoc's python bindings.
+all SanQiCapture builds. To aid extensions to manipulate widgets in a simple but portable fashion this
+helper exposes a small subset of Qt via SanQi Capture's python bindings.
 
 The intention is not to allow fully flexible building of Qt panels, but to allow access to some
-basic UI building tools for simple data input and display which can be used on any RenderDoc build.
+basic UI building tools for simple data input and display which can be used on any SanQiCapture build.
 
 This manager is retrieved by calling :meth:`ExtensionManager.GetMiniQtHelper`.
 
@@ -490,7 +490,7 @@ should only be used for debugging as the name may change even if for the same ty
 .. note::
   The widget returned may not be a widget created through this helper interface if the specified
   widget has been docked somewhere. Beware making changes to any widgets returned as you may modify
-  the RenderDoc UI itself.
+  the SanQiCapture UI itself.
 
 :param QWidget widget: The widget to query.
 :return: The handle to the parent widget with a matching name, or ``None`` if this widget is either

@@ -480,7 +480,7 @@ bool VkInitParams::IsSupportedVersion(uint64_t ver)
   if(ver == 0xC)
     return true;
 
-  // 0xB -> 0xC - generally this is when we started serialising pNext chains that older RenderDoc
+  // 0xB -> 0xC - generally this is when we started serialising pNext chains that older SanQi Capture
   // couldn't support. But we don't need any special backwards compatibiltiy code as it's just added
   // serialisation.
   if(ver == 0xB)

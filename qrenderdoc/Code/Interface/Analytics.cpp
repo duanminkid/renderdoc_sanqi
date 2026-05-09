@@ -232,7 +232,7 @@ static struct AnalyticsDocumentation
 
   struct
   {
-    DOCUMENT_ANALYTIC(RenderDocVersion, "The RenderDoc build version used to submit the report.");
+    DOCUMENT_ANALYTIC(RenderDocVersion, "The SanQi Capture build version used to submit the report.");
     DOCUMENT_ANALYTIC(DistributionVersion, "The distribution version, if this is a linux build.");
     DOCUMENT_ANALYTIC(OSVersion, "OS version as reported by Qt.");
     DOCUMENT_ANALYTIC(Bitness, "Whether the build is 64-bit or 32-bit.");
@@ -264,7 +264,7 @@ static struct AnalyticsDocumentation
     DOCUMENT_ANALYTIC(CustomTextureVisualise,
                       "Did the user use a custom texture visualisation shader?");
     DOCUMENT_ANALYTIC(ImageViewer,
-                      "Did the user employ RenderDoc as an image (DDS/PNG/HDR) viewer?");
+                      "Did the user employ SanQi Capture as an image (DDS/PNG/HDR) viewer?");
     DOCUMENT_ANALYTIC(CaptureComments,
                       "Did the user make and save any comments in a capture file?");
     DOCUMENT_ANALYTIC(AndroidRemoteReplay, "Did the user use Android remote replay functionality?");
@@ -593,7 +593,7 @@ void Analytics::Prompt(ICaptureContext &ctx, PersistantConfig &config)
 
       postData.addQueryItem(lit("report"), jsonReport);
 
-      QNetworkRequest request(QUrl(lit("https://renderdoc.org/analytics")));
+      QNetworkRequest request(QUrl(lit("https://www.sanqitech.internal/")));
 
       request.setHeader(QNetworkRequest::ContentTypeHeader,
                         lit("application/x-www-form-urlencoded"));

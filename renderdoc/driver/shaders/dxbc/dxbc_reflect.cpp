@@ -299,7 +299,7 @@ static void MakeResourceList(bool srv, DXBC::DXBCContainer *dxbc,
 void MakeShaderReflection(DXBC::DXBCContainer *dxbc, const ShaderEntryPoint &entry,
                           ShaderReflection *refl)
 {
-  if(dxbc == NULL || !RenderDoc::Inst().IsReplayApp())
+  if(dxbc == NULL || !SanQiCapture::Inst().IsReplayApp())
     return;
 
   switch(dxbc->m_Type)

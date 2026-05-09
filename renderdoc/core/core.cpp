@@ -301,13 +301,13 @@ rdcstr DoStringise(const SystemChunk &el)
   END_ENUM_STRINGISE();
 }
 
-RenderDoc &RenderDoc::Inst()
+SanQiCapture &SanQiCapture::Inst()
 {
-  static RenderDoc realInst;
+  static SanQiCapture realInst;
   return realInst;
 }
 
-void RenderDoc::RecreateCrashHandler()
+void SanQiCapture::RecreateCrashHandler()
 {
   SCOPED_WRITELOCK(m_ExHandlerLock);
 
@@ -317,9 +317,9 @@ void RenderDoc::RecreateCrashHandler()
   FileIO::GetExecutableFilename(exename);
   exename = strlower(exename);
 
-  // only create crash handler when we're not in renderdoccmd (to prevent infinite loop as
-  // the crash handler itself launches renderdoccmd)
-  if(exename.contains("renderdoccmd"))
+  // only create crash handler when we're not in sanqicapture (to prevent infinite loop as
+  // the crash handler itself launches sanqicapture)
+  if(exename.contains("sanqicapture"))
     return;
 
 #if ENABLED(RDOC_WIN32)
@@ -357,11 +357,11 @@ void RenderDoc::RecreateCrashHandler()
 
   m_ExHandler = new CrashHandler(m_ExHandler);
 
-  m_ExHandler->RegisterMemoryRegion(this, sizeof(RenderDoc));
+  m_ExHandler->RegisterMemoryRegion(this, sizeof(SanQiCapture));
 #endif
 }
 
-void RenderDoc::UnloadCrashHandler()
+void SanQiCapture::UnloadCrashHandler()
 {
   SCOPED_WRITELOCK(m_ExHandlerLock);
 
@@ -373,7 +373,7 @@ void RenderDoc::UnloadCrashHandler()
   SAFE_DELETE(m_ExHandler);
 }
 
-void RenderDoc::RegisterMemoryRegion(void *mem, size_t size)
+void SanQiCapture::RegisterMemoryRegion(void *mem, size_t size)
 {
   SCOPED_READLOCK(m_ExHandlerLock);
 
@@ -381,7 +381,7 @@ void RenderDoc::RegisterMemoryRegion(void *mem, size_t size)
     m_ExHandler->RegisterMemoryRegion(mem, size);
 }
 
-void RenderDoc::UnregisterMemoryRegion(void *mem)
+void SanQiCapture::UnregisterMemoryRegion(void *mem)
 {
   SCOPED_READLOCK(m_ExHandlerLock);
 
@@ -389,7 +389,7 @@ void RenderDoc::UnregisterMemoryRegion(void *mem)
     m_ExHandler->UnregisterMemoryRegion(mem);
 }
 
-RenderDoc::RenderDoc()
+SanQiCapture::SanQiCapture()
 {
   m_CaptureFileTemplate = "";
   m_MarkerIndentLevel = 0;
@@ -421,7 +421,7 @@ RenderDoc::RenderDoc()
   m_ControlClientThreadShutdown = false;
 }
 
-void RenderDoc::Initialise()
+void SanQiCapture::Initialise()
 {
   Callstack::Init();
 
@@ -482,7 +482,7 @@ void RenderDoc::Initialise()
   {
     rdcstr capture_filename;
 
-    const rdcstr base = IsReplayApp() ? "RenderDoc" : "RenderDoc_app";
+    const rdcstr base = IsReplayApp() ? "SanQi Capture" : "SanQi_app";
 
     FileIO::GetDefaultFiles(base, capture_filename, m_LoggingFilename, m_Target);
 
@@ -505,7 +505,7 @@ void RenderDoc::Initialise()
       "Unknown";
 #endif
 
-  RDCLOG("RenderDoc v%s %s %s %s (%s) %s", MAJOR_MINOR_VERSION_STRING, platform,
+  RDCLOG("SanQi Capture v%s %s %s %s (%s) %s", MAJOR_MINOR_VERSION_STRING, platform,
          sizeof(uintptr_t) == sizeof(uint64_t) ? "64-bit" : "32-bit",
          ENABLED(RDOC_RELEASE) ? "Release" : "Development", GitVersionHash,
          IsReplayApp() ? "loaded in replay application" : "capturing application");
@@ -544,7 +544,7 @@ void RenderDoc::Initialise()
   ProcessConfig();
 }
 
-RenderDoc::~RenderDoc()
+SanQiCapture::~SanQiCapture()
 {
   if(m_ExHandler)
   {
@@ -593,7 +593,7 @@ RenderDoc::~RenderDoc()
   StringFormat::Shutdown();
 }
 
-void RenderDoc::RemoveHooks()
+void SanQiCapture::RemoveHooks()
 {
   if(m_ExHandler)
   {
@@ -611,7 +611,7 @@ void RenderDoc::RemoveHooks()
   }
 }
 
-void RenderDoc::InitialiseReplay(GlobalEnvironment env, const rdcarray<rdcstr> &args)
+void SanQiCapture::InitialiseReplay(GlobalEnvironment env, const rdcarray<rdcstr> &args)
 {
   if(!IsReplayApp())
   {
@@ -827,25 +827,25 @@ void RenderDoc::InitialiseReplay(GlobalEnvironment env, const rdcarray<rdcstr> &
   }
 }
 
-void RenderDoc::ShutdownReplay()
+void SanQiCapture::ShutdownReplay()
 {
   SyncAvailableGPUThread();
 
-  // call shutdown functions early, as we only want to do these in the RenderDoc destructor if we
+  // call shutdown functions early, as we only want to do these in the SanQi Capture destructor if we
   // have no other choice (i.e. we're capturing).
   for(auto it = m_ShutdownFunctions.begin(); it != m_ShutdownFunctions.end(); ++it)
     (*it)();
   m_ShutdownFunctions.clear();
 }
 
-void RenderDoc::RegisterShutdownFunction(ShutdownFunction func)
+void SanQiCapture::RegisterShutdownFunction(ShutdownFunction func)
 {
   auto it = std::lower_bound(m_ShutdownFunctions.begin(), m_ShutdownFunctions.end(), func);
   if(it == m_ShutdownFunctions.end() || *it != func)
     m_ShutdownFunctions.insert(it - m_ShutdownFunctions.begin(), func);
 }
 
-bool RenderDoc::MatchClosestWindow(DeviceOwnedWindow &devWnd)
+bool SanQiCapture::MatchClosestWindow(DeviceOwnedWindow &devWnd)
 {
   SCOPED_LOCK(m_CapturerListLock);
 
@@ -874,19 +874,19 @@ bool RenderDoc::MatchClosestWindow(DeviceOwnedWindow &devWnd)
   return false;
 }
 
-bool RenderDoc::IsActiveWindow(DeviceOwnedWindow devWnd)
+bool SanQiCapture::IsActiveWindow(DeviceOwnedWindow devWnd)
 {
   SCOPED_LOCK(m_CapturerListLock);
   return devWnd == m_ActiveWindow;
 }
 
-void RenderDoc::GetActiveWindow(DeviceOwnedWindow &devWnd)
+void SanQiCapture::GetActiveWindow(DeviceOwnedWindow &devWnd)
 {
   SCOPED_LOCK(m_CapturerListLock);
   devWnd = m_ActiveWindow;
 }
 
-IFrameCapturer *RenderDoc::MatchFrameCapturer(DeviceOwnedWindow devWnd)
+IFrameCapturer *SanQiCapture::MatchFrameCapturer(DeviceOwnedWindow devWnd)
 {
   // try and find the closest frame capture registered, and update
   // the values in devWnd to point to it precisely
@@ -927,7 +927,7 @@ IFrameCapturer *RenderDoc::MatchFrameCapturer(DeviceOwnedWindow devWnd)
   return it->second.FrameCapturer;
 }
 
-void RenderDoc::StartFrameCapture(DeviceOwnedWindow devWnd)
+void SanQiCapture::StartFrameCapture(DeviceOwnedWindow devWnd)
 {
   m_CaptureTitle.clear();
   IFrameCapturer *frameCap = MatchFrameCapturer(devWnd);
@@ -938,7 +938,7 @@ void RenderDoc::StartFrameCapture(DeviceOwnedWindow devWnd)
   }
 }
 
-void RenderDoc::SetActiveWindow(DeviceOwnedWindow devWnd)
+void SanQiCapture::SetActiveWindow(DeviceOwnedWindow devWnd)
 {
   SCOPED_LOCK(m_CapturerListLock);
 
@@ -953,12 +953,12 @@ void RenderDoc::SetActiveWindow(DeviceOwnedWindow devWnd)
   m_ActiveWindow = devWnd;
 }
 
-void RenderDoc::SetCaptureTitle(const rdcstr &title)
+void SanQiCapture::SetCaptureTitle(const rdcstr &title)
 {
   m_CaptureTitle = title;
 }
 
-bool RenderDoc::EndFrameCapture(DeviceOwnedWindow devWnd)
+bool SanQiCapture::EndFrameCapture(DeviceOwnedWindow devWnd)
 {
   IFrameCapturer *frameCap = MatchFrameCapturer(devWnd);
   if(frameCap)
@@ -970,7 +970,7 @@ bool RenderDoc::EndFrameCapture(DeviceOwnedWindow devWnd)
   return false;
 }
 
-bool RenderDoc::DiscardFrameCapture(DeviceOwnedWindow devWnd)
+bool SanQiCapture::DiscardFrameCapture(DeviceOwnedWindow devWnd)
 {
   IFrameCapturer *frameCap = MatchFrameCapturer(devWnd);
   if(frameCap)
@@ -982,19 +982,19 @@ bool RenderDoc::DiscardFrameCapture(DeviceOwnedWindow devWnd)
   return false;
 }
 
-bool RenderDoc::IsTargetControlConnected()
+bool SanQiCapture::IsTargetControlConnected()
 {
   SCOPED_LOCK(m_SingleClientLock);
   return !m_SingleClientName.empty();
 }
 
-rdcstr RenderDoc::GetTargetControlUsername()
+rdcstr SanQiCapture::GetTargetControlUsername()
 {
   SCOPED_LOCK(m_SingleClientLock);
   return m_SingleClientName;
 }
 
-bool RenderDoc::ShowReplayUI()
+bool SanQiCapture::ShowReplayUI()
 {
   SCOPED_LOCK(m_SingleClientLock);
   if(m_SingleClientName.empty())
@@ -1004,7 +1004,7 @@ bool RenderDoc::ShowReplayUI()
   return true;
 }
 
-void RenderDoc::Tick()
+void SanQiCapture::Tick()
 {
   bool cur_focus = false;
   for(size_t i = 0; i < m_FocusKeys.size(); i++)
@@ -1050,7 +1050,7 @@ void RenderDoc::Tick()
   }
 }
 
-void RenderDoc::CycleActiveWindow()
+void SanQiCapture::CycleActiveWindow()
 {
   SCOPED_LOCK(m_CapturerListLock);
 
@@ -1077,13 +1077,13 @@ void RenderDoc::CycleActiveWindow()
   }
 }
 
-uint32_t RenderDoc::GetCapturableWindowCount()
+uint32_t SanQiCapture::GetCapturableWindowCount()
 {
   SCOPED_LOCK(m_CapturerListLock);
   return (uint32_t)m_WindowFrameCapturers.size();
 }
 
-rdcstr RenderDoc::GetOverlayText(RDCDriver driver, DeviceOwnedWindow devWnd, uint32_t frameNumber,
+rdcstr SanQiCapture::GetOverlayText(RDCDriver driver, DeviceOwnedWindow devWnd, uint32_t frameNumber,
                                  int flags)
 {
   bool activeWindow;
@@ -1286,14 +1286,14 @@ rdcstr RenderDoc::GetOverlayText(RDCDriver driver, DeviceOwnedWindow devWnd, uin
   return overlayText;
 }
 
-void RenderDoc::QueueCapture(uint32_t frameNumber)
+void SanQiCapture::QueueCapture(uint32_t frameNumber)
 {
   auto it = std::lower_bound(m_QueuedFrameCaptures.begin(), m_QueuedFrameCaptures.end(), frameNumber);
   if(it == m_QueuedFrameCaptures.end() || *it != frameNumber)
     m_QueuedFrameCaptures.insert(it - m_QueuedFrameCaptures.begin(), frameNumber);
 }
 
-bool RenderDoc::ShouldTriggerCapture(uint32_t frameNumber)
+bool SanQiCapture::ShouldTriggerCapture(uint32_t frameNumber)
 {
   bool ret = m_Cap > 0;
 
@@ -1323,7 +1323,7 @@ bool RenderDoc::ShouldTriggerCapture(uint32_t frameNumber)
   return ret;
 }
 
-void RenderDoc::ResamplePixels(const FramePixels &in, RDCThumb &out)
+void SanQiCapture::ResamplePixels(const FramePixels &in, RDCThumb &out)
 {
   if(in.width == 0 || in.height == 0)
   {
@@ -1428,7 +1428,7 @@ void RenderDoc::ResamplePixels(const FramePixels &in, RDCThumb &out)
   }
 }
 
-void RenderDoc::EncodeThumbPixels(const RDCThumb &in, RDCThumb &out)
+void SanQiCapture::EncodeThumbPixels(const RDCThumb &in, RDCThumb &out)
 {
   if(in.width == 0 || in.height == 0)
   {
@@ -1476,7 +1476,7 @@ void RenderDoc::EncodeThumbPixels(const RDCThumb &in, RDCThumb &out)
   }
 }
 
-RDCFile *RenderDoc::CreateRDC(RDCDriver driver, uint32_t frameNum, const FramePixels &fp)
+RDCFile *SanQiCapture::CreateRDC(RDCDriver driver, uint32_t frameNum, const FramePixels &fp)
 {
   RDCFile *ret = new RDCFile;
 
@@ -1528,7 +1528,7 @@ RDCFile *RenderDoc::CreateRDC(RDCDriver driver, uint32_t frameNum, const FramePi
   return ret;
 }
 
-bool RenderDoc::HasReplayDriver(RDCDriver driver) const
+bool SanQiCapture::HasReplayDriver(RDCDriver driver) const
 {
   // Image driver is handled specially and isn't registered in the map
   if(driver == RDCDriver::Image)
@@ -1537,7 +1537,7 @@ bool RenderDoc::HasReplayDriver(RDCDriver driver) const
   return m_ReplayDriverProviders.find(driver) != m_ReplayDriverProviders.end();
 }
 
-bool RenderDoc::HasRemoteDriver(RDCDriver driver) const
+bool SanQiCapture::HasRemoteDriver(RDCDriver driver) const
 {
   if(m_RemoteDriverProviders.find(driver) != m_RemoteDriverProviders.end())
     return true;
@@ -1545,7 +1545,7 @@ bool RenderDoc::HasRemoteDriver(RDCDriver driver) const
   return HasReplayDriver(driver);
 }
 
-void RenderDoc::RegisterReplayProvider(RDCDriver driver, ReplayDriverProvider provider)
+void SanQiCapture::RegisterReplayProvider(RDCDriver driver, ReplayDriverProvider provider)
 {
   if(HasReplayDriver(driver))
     RDCERR("Re-registering provider for %s", ToStr(driver).c_str());
@@ -1555,7 +1555,7 @@ void RenderDoc::RegisterReplayProvider(RDCDriver driver, ReplayDriverProvider pr
   m_ReplayDriverProviders[driver] = provider;
 }
 
-void RenderDoc::RegisterRemoteProvider(RDCDriver driver, RemoteDriverProvider provider)
+void SanQiCapture::RegisterRemoteProvider(RDCDriver driver, RemoteDriverProvider provider)
 {
   if(HasRemoteDriver(driver))
     RDCERR("Re-registering provider for %s", ToStr(driver).c_str());
@@ -1565,14 +1565,14 @@ void RenderDoc::RegisterRemoteProvider(RDCDriver driver, RemoteDriverProvider pr
   m_RemoteDriverProviders[driver] = provider;
 }
 
-void RenderDoc::RegisterStructuredProcessor(RDCDriver driver, StructuredProcessor provider)
+void SanQiCapture::RegisterStructuredProcessor(RDCDriver driver, StructuredProcessor provider)
 {
   RDCASSERT(m_StructProcesssors.find(driver) == m_StructProcesssors.end());
 
   m_StructProcesssors[driver] = provider;
 }
 
-void RenderDoc::RegisterCaptureExporter(CaptureExporter exporter, CaptureFileFormat description)
+void SanQiCapture::RegisterCaptureExporter(CaptureExporter exporter, CaptureFileFormat description)
 {
   rdcstr filetype = description.extension;
 
@@ -1593,7 +1593,7 @@ void RenderDoc::RegisterCaptureExporter(CaptureExporter exporter, CaptureFileFor
   m_Exporters[filetype] = exporter;
 }
 
-void RenderDoc::RegisterCaptureImportExporter(CaptureImporter importer, CaptureExporter exporter,
+void SanQiCapture::RegisterCaptureImportExporter(CaptureImporter importer, CaptureExporter exporter,
                                               CaptureFileFormat description)
 {
   rdcstr filetype = description.extension;
@@ -1616,7 +1616,7 @@ void RenderDoc::RegisterCaptureImportExporter(CaptureImporter importer, CaptureE
   m_Exporters[filetype] = exporter;
 }
 
-void RenderDoc::RegisterDeviceProtocol(const rdcstr &protocol, ProtocolHandler handler)
+void SanQiCapture::RegisterDeviceProtocol(const rdcstr &protocol, ProtocolHandler handler)
 {
   if(m_Protocols[protocol] != NULL)
   {
@@ -1626,7 +1626,7 @@ void RenderDoc::RegisterDeviceProtocol(const rdcstr &protocol, ProtocolHandler h
   m_Protocols[protocol] = handler;
 }
 
-StructuredProcessor RenderDoc::GetStructuredProcessor(RDCDriver driver)
+StructuredProcessor SanQiCapture::GetStructuredProcessor(RDCDriver driver)
 {
   auto it = m_StructProcesssors.find(driver);
 
@@ -1636,7 +1636,7 @@ StructuredProcessor RenderDoc::GetStructuredProcessor(RDCDriver driver)
   return it->second;
 }
 
-CaptureExporter RenderDoc::GetCaptureExporter(const rdcstr &filetype)
+CaptureExporter SanQiCapture::GetCaptureExporter(const rdcstr &filetype)
 {
   auto it = m_Exporters.find(filetype);
 
@@ -1646,7 +1646,7 @@ CaptureExporter RenderDoc::GetCaptureExporter(const rdcstr &filetype)
   return it->second;
 }
 
-CaptureImporter RenderDoc::GetCaptureImporter(const rdcstr &filetype)
+CaptureImporter SanQiCapture::GetCaptureImporter(const rdcstr &filetype)
 {
   auto it = m_Importers.find(filetype);
 
@@ -1656,7 +1656,7 @@ CaptureImporter RenderDoc::GetCaptureImporter(const rdcstr &filetype)
   return it->second;
 }
 
-rdcarray<rdcstr> RenderDoc::GetSupportedDeviceProtocols()
+rdcarray<rdcstr> SanQiCapture::GetSupportedDeviceProtocols()
 {
   rdcarray<rdcstr> ret;
 
@@ -1666,7 +1666,7 @@ rdcarray<rdcstr> RenderDoc::GetSupportedDeviceProtocols()
   return ret;
 }
 
-IDeviceProtocolHandler *RenderDoc::GetDeviceProtocol(const rdcstr &protocol)
+IDeviceProtocolHandler *SanQiCapture::GetDeviceProtocol(const rdcstr &protocol)
 {
   rdcstr p = protocol;
 
@@ -1683,7 +1683,7 @@ IDeviceProtocolHandler *RenderDoc::GetDeviceProtocol(const rdcstr &protocol)
   return NULL;
 }
 
-rdcarray<CaptureFileFormat> RenderDoc::GetCaptureFileFormats()
+rdcarray<CaptureFileFormat> SanQiCapture::GetCaptureFileFormats()
 {
   rdcarray<CaptureFileFormat> ret = m_ImportExportFormats;
 
@@ -1703,14 +1703,14 @@ rdcarray<CaptureFileFormat> RenderDoc::GetCaptureFileFormats()
   return ret;
 }
 
-rdcarray<GPUDevice> RenderDoc::GetAvailableGPUs()
+rdcarray<GPUDevice> SanQiCapture::GetAvailableGPUs()
 {
   SyncAvailableGPUThread();
 
   return m_AvailableGPUs;
 }
 
-void RenderDoc::SyncAvailableGPUThread()
+void SanQiCapture::SyncAvailableGPUThread()
 {
   if(m_AvailableGPUThread)
   {
@@ -1720,7 +1720,7 @@ void RenderDoc::SyncAvailableGPUThread()
   }
 }
 
-bool RenderDoc::HasReplaySupport(RDCDriver driverType)
+bool SanQiCapture::HasReplaySupport(RDCDriver driverType)
 {
   if(driverType == RDCDriver::Image)
     return true;
@@ -1731,7 +1731,7 @@ bool RenderDoc::HasReplaySupport(RDCDriver driverType)
   return m_ReplayDriverProviders.find(driverType) != m_ReplayDriverProviders.end();
 }
 
-RDResult RenderDoc::CreateProxyReplayDriver(RDCDriver proxyDriver, IReplayDriver **driver)
+RDResult SanQiCapture::CreateProxyReplayDriver(RDCDriver proxyDriver, IReplayDriver **driver)
 {
   SyncAvailableGPUThread();
 
@@ -1749,7 +1749,7 @@ RDResult RenderDoc::CreateProxyReplayDriver(RDCDriver proxyDriver, IReplayDriver
                       ToStr(proxyDriver).c_str());
 }
 
-RDResult RenderDoc::CreateReplayDriver(RDCFile *rdc, const ReplayOptions &opts, IReplayDriver **driver)
+RDResult SanQiCapture::CreateReplayDriver(RDCFile *rdc, const ReplayOptions &opts, IReplayDriver **driver)
 {
   if(driver == NULL)
     return ResultCode::InvalidParameter;
@@ -1779,7 +1779,7 @@ RDResult RenderDoc::CreateReplayDriver(RDCFile *rdc, const ReplayOptions &opts, 
   return ResultCode::APIUnsupported;
 }
 
-RDResult RenderDoc::CreateRemoteDriver(RDCFile *rdc, const ReplayOptions &opts, IRemoteDriver **driver)
+RDResult SanQiCapture::CreateRemoteDriver(RDCFile *rdc, const ReplayOptions &opts, IRemoteDriver **driver)
 {
   if(rdc == NULL || driver == NULL)
     return ResultCode::InvalidParameter;
@@ -1809,7 +1809,7 @@ RDResult RenderDoc::CreateRemoteDriver(RDCFile *rdc, const ReplayOptions &opts, 
                       ToStr(driverType).c_str());
 }
 
-void RenderDoc::AddActiveDriver(RDCDriver driver, bool present)
+void SanQiCapture::AddActiveDriver(RDCDriver driver, bool present)
 {
   if(driver == RDCDriver::Unknown)
     return;
@@ -1824,7 +1824,7 @@ void RenderDoc::AddActiveDriver(RDCDriver driver, bool present)
   }
 }
 
-void RenderDoc::SetDriverUnsupportedMessage(RDCDriver driver, rdcstr message)
+void SanQiCapture::SetDriverUnsupportedMessage(RDCDriver driver, rdcstr message)
 {
   if(driver == RDCDriver::Unknown)
     return;
@@ -1833,7 +1833,7 @@ void RenderDoc::SetDriverUnsupportedMessage(RDCDriver driver, rdcstr message)
   m_APISupportMessages[driver] = message;
 }
 
-std::map<RDCDriver, RDCDriverStatus> RenderDoc::GetActiveDrivers()
+std::map<RDCDriver, RDCDriverStatus> SanQiCapture::GetActiveDrivers()
 {
   std::map<RDCDriver, uint64_t> drivers;
 
@@ -1869,7 +1869,7 @@ std::map<RDCDriver, RDCDriverStatus> RenderDoc::GetActiveDrivers()
   return ret;
 }
 
-std::map<RDCDriver, rdcstr> RenderDoc::GetReplayDrivers()
+std::map<RDCDriver, rdcstr> SanQiCapture::GetReplayDrivers()
 {
   std::map<RDCDriver, rdcstr> ret;
   for(auto it = m_ReplayDriverProviders.begin(); it != m_ReplayDriverProviders.end(); ++it)
@@ -1877,7 +1877,7 @@ std::map<RDCDriver, rdcstr> RenderDoc::GetReplayDrivers()
   return ret;
 }
 
-std::map<RDCDriver, rdcstr> RenderDoc::GetRemoteDrivers()
+std::map<RDCDriver, rdcstr> SanQiCapture::GetRemoteDrivers()
 {
   std::map<RDCDriver, rdcstr> ret;
 
@@ -1891,7 +1891,7 @@ std::map<RDCDriver, rdcstr> RenderDoc::GetRemoteDrivers()
   return ret;
 }
 
-DriverInformation RenderDoc::GetDriverInformation(GraphicsAPI api)
+DriverInformation SanQiCapture::GetDriverInformation(GraphicsAPI api)
 {
   DriverInformation ret = {};
 
@@ -1926,7 +1926,7 @@ DriverInformation RenderDoc::GetDriverInformation(GraphicsAPI api)
   return ret;
 }
 
-void RenderDoc::EnableVendorExtensions(VendorExtensions ext)
+void SanQiCapture::EnableVendorExtensions(VendorExtensions ext)
 {
   m_VendorExts[(int)ext] = true;
 
@@ -1938,14 +1938,14 @@ void RenderDoc::EnableVendorExtensions(VendorExtensions ext)
   RDCWARN("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
 }
 
-void RenderDoc::SetCaptureOptions(const CaptureOptions &opts)
+void SanQiCapture::SetCaptureOptions(const CaptureOptions &opts)
 {
   m_Options = opts;
 
   LibraryHooks::OptionsUpdated();
 }
 
-void RenderDoc::SetCaptureFileTemplate(const rdcstr &pathtemplate)
+void SanQiCapture::SetCaptureFileTemplate(const rdcstr &pathtemplate)
 {
   if(pathtemplate.empty())
     return;
@@ -1959,9 +1959,9 @@ void RenderDoc::SetCaptureFileTemplate(const rdcstr &pathtemplate)
   FileIO::CreateParentDirectory(m_CaptureFileTemplate);
 }
 
-void RenderDoc::FinishCaptureWriting(RDCFile *rdc, uint32_t frameNumber)
+void SanQiCapture::FinishCaptureWriting(RDCFile *rdc, uint32_t frameNumber)
 {
-  RenderDoc::Inst().SetProgress(CaptureProgress::FileWriting, 0.0f);
+  SanQiCapture::Inst().SetProgress(CaptureProgress::FileWriting, 0.0f);
 
   if(rdc)
   {
@@ -2048,10 +2048,10 @@ void RenderDoc::FinishCaptureWriting(RDCFile *rdc, uint32_t frameNumber)
     RDCLOG("Discarded capture, Frame %u", frameNumber);
   }
 
-  RenderDoc::Inst().SetProgress(CaptureProgress::FileWriting, 1.0f);
+  SanQiCapture::Inst().SetProgress(CaptureProgress::FileWriting, 1.0f);
 }
 
-void RenderDoc::AddChildProcess(uint32_t pid, uint32_t ident)
+void SanQiCapture::AddChildProcess(uint32_t pid, uint32_t ident)
 {
   if(ident == 0 || ident == m_RemoteIdent)
   {
@@ -2064,13 +2064,13 @@ void RenderDoc::AddChildProcess(uint32_t pid, uint32_t ident)
   m_Children.push_back(make_rdcpair(pid, ident));
 }
 
-rdcarray<rdcpair<uint32_t, uint32_t>> RenderDoc::GetChildProcesses()
+rdcarray<rdcpair<uint32_t, uint32_t>> SanQiCapture::GetChildProcesses()
 {
   SCOPED_LOCK(m_ChildLock);
   return m_Children;
 }
 
-void RenderDoc::CompleteChildThread(uint32_t pid)
+void SanQiCapture::CompleteChildThread(uint32_t pid)
 {
   SCOPED_LOCK(m_ChildLock);
   // the thread for this PID is done, mark it as ready to wait on by zero-ing out the PID
@@ -2081,25 +2081,25 @@ void RenderDoc::CompleteChildThread(uint32_t pid)
   }
 }
 
-void RenderDoc::AddChildThread(uint32_t pid, Threading::ThreadHandle thread)
+void SanQiCapture::AddChildThread(uint32_t pid, Threading::ThreadHandle thread)
 {
   SCOPED_LOCK(m_ChildLock);
   m_ChildThreads.push_back(make_rdcpair(pid, thread));
 }
 
-void RenderDoc::ValidateCaptures()
+void SanQiCapture::ValidateCaptures()
 {
   SCOPED_LOCK(m_CaptureLock);
   m_Captures.removeIf([](const CaptureData &cap) { return !FileIO::exists(cap.path); });
 }
 
-rdcarray<CaptureData> RenderDoc::GetCaptures()
+rdcarray<CaptureData> SanQiCapture::GetCaptures()
 {
   SCOPED_LOCK(m_CaptureLock);
   return m_Captures;
 }
 
-void RenderDoc::MarkCaptureRetrieved(uint32_t idx)
+void SanQiCapture::MarkCaptureRetrieved(uint32_t idx)
 {
   SCOPED_LOCK(m_CaptureLock);
   if(idx < m_Captures.size())
@@ -2108,7 +2108,7 @@ void RenderDoc::MarkCaptureRetrieved(uint32_t idx)
   }
 }
 
-void RenderDoc::AddDeviceFrameCapturer(void *dev, IFrameCapturer *cap)
+void SanQiCapture::AddDeviceFrameCapturer(void *dev, IFrameCapturer *cap)
 {
   if(IsReplayApp())
     return;
@@ -2125,7 +2125,7 @@ void RenderDoc::AddDeviceFrameCapturer(void *dev, IFrameCapturer *cap)
   m_DeviceFrameCapturers[dev] = cap;
 }
 
-void RenderDoc::RemoveDeviceFrameCapturer(void *dev)
+void SanQiCapture::RemoveDeviceFrameCapturer(void *dev)
 {
   if(IsReplayApp())
     return;
@@ -2142,7 +2142,7 @@ void RenderDoc::RemoveDeviceFrameCapturer(void *dev)
   m_DeviceFrameCapturers.erase(dev);
 }
 
-void RenderDoc::AddFrameCapturer(DeviceOwnedWindow devWnd, IFrameCapturer *cap)
+void SanQiCapture::AddFrameCapturer(DeviceOwnedWindow devWnd, IFrameCapturer *cap)
 {
   if(IsReplayApp())
     return;
@@ -2177,7 +2177,7 @@ void RenderDoc::AddFrameCapturer(DeviceOwnedWindow devWnd, IFrameCapturer *cap)
     m_ActiveWindow = devWnd;
 }
 
-void RenderDoc::RemoveFrameCapturer(DeviceOwnedWindow devWnd)
+void SanQiCapture::RemoveFrameCapturer(DeviceOwnedWindow devWnd)
 {
   if(IsReplayApp())
     return;
@@ -2223,7 +2223,7 @@ void RenderDoc::RemoveFrameCapturer(DeviceOwnedWindow devWnd)
   }
 }
 
-bool RenderDoc::HasActiveFrameCapturer(RDCDriver driver)
+bool SanQiCapture::HasActiveFrameCapturer(RDCDriver driver)
 {
   SCOPED_LOCK(m_CapturerListLock);
 
@@ -2289,7 +2289,7 @@ TEST_CASE("Check ResourceId tostr", "[tostr]")
 
 TEST_CASE("Check ResamplePixels", "[core][resamplepixels]")
 {
-  RenderDoc::FramePixels sourcePixels;
+  SanQiCapture::FramePixels sourcePixels;
   uint32_t height = 4;
   uint32_t width = 4;
   uint32_t bytesPerComponent = 1;
@@ -2324,7 +2324,7 @@ TEST_CASE("Check ResamplePixels", "[core][resamplepixels]")
 
   RDCThumb thumbOutYNotFlipped;
   sourcePixels.is_y_flipped = false;
-  RenderDoc::Inst().ResamplePixels(sourcePixels, thumbOutYNotFlipped);
+  SanQiCapture::Inst().ResamplePixels(sourcePixels, thumbOutYNotFlipped);
   CHECK(thumbOutYNotFlipped.width == width);
   CHECK(thumbOutYNotFlipped.height == height);
 
@@ -2343,7 +2343,7 @@ TEST_CASE("Check ResamplePixels", "[core][resamplepixels]")
 
   RDCThumb thumbOutYFlipped;
   sourcePixels.is_y_flipped = true;
-  RenderDoc::Inst().ResamplePixels(sourcePixels, thumbOutYFlipped);
+  SanQiCapture::Inst().ResamplePixels(sourcePixels, thumbOutYFlipped);
   CHECK(thumbOutYFlipped.width == width);
   CHECK(thumbOutYFlipped.height == height);
   dest = (byte *)thumbOutYFlipped.pixels.data();
@@ -2361,7 +2361,7 @@ TEST_CASE("Check ResamplePixels", "[core][resamplepixels]")
 
   RDCThumb thumbOutBGRA;
   sourcePixels.bgra = true;
-  RenderDoc::Inst().ResamplePixels(sourcePixels, thumbOutBGRA);
+  SanQiCapture::Inst().ResamplePixels(sourcePixels, thumbOutBGRA);
   CHECK(thumbOutBGRA.width == width);
   CHECK(thumbOutBGRA.height == height);
   dest = (byte *)thumbOutBGRA.pixels.data();
@@ -2381,7 +2381,7 @@ TEST_CASE("Check ResamplePixels", "[core][resamplepixels]")
   sourcePixels.bgra = false;
   sourcePixels.max_width = 2;
   sourcePixels.pitch_requirement = 2;
-  RenderDoc::Inst().ResamplePixels(sourcePixels, thumbOutDownsample);
+  SanQiCapture::Inst().ResamplePixels(sourcePixels, thumbOutDownsample);
   CHECK(thumbOutDownsample.width == 2);
   CHECK(thumbOutDownsample.height == 2);
   dest = (byte *)thumbOutDownsample.pixels.data();

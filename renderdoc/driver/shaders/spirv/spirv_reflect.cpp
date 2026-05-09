@@ -2420,7 +2420,7 @@ TEST_CASE("Validate SPIR-V reflection", "[spirv][reflection]")
   auto compiler = [&type](ShaderStage stage, const rdcstr &source, const rdcstr &entryPoint,
                           ShaderReflection &refl) {
     rdcspv::Init();
-    RenderDoc::Inst().RegisterShutdownFunction(&rdcspv::Shutdown);
+    SanQiCapture::Inst().RegisterShutdownFunction(&rdcspv::Shutdown);
 
     rdcarray<uint32_t> spirv;
     rdcspv::CompilationSettings settings(type == ShaderType::Vulkan

@@ -126,10 +126,10 @@ public:
 
   rdcarray<CaptureFileFormat> GetCaptureFileFormats()
   {
-    return RenderDoc::Inst().GetCaptureFileFormats();
+    return SanQiCapture::Inst().GetCaptureFileFormats();
   }
 
-  rdcarray<GPUDevice> GetAvailableGPUs() { return RenderDoc::Inst().GetAvailableGPUs(); }
+  rdcarray<GPUDevice> GetAvailableGPUs() { return SanQiCapture::Inst().GetAvailableGPUs(); }
   const SDFile &GetStructuredData()
   {
     // decompile to structured data on demand.
@@ -195,7 +195,7 @@ CaptureFile::~CaptureFile()
 ResultDetails CaptureFile::OpenFile(const rdcstr &filename, const rdcstr &filetype,
                                     RENDERDOC_ProgressCallback progress)
 {
-  CaptureImporter importer = RenderDoc::Inst().GetCaptureImporter(filetype);
+  CaptureImporter importer = SanQiCapture::Inst().GetCaptureImporter(filetype);
 
   if(importer)
   {
@@ -236,7 +236,7 @@ ResultDetails CaptureFile::OpenFile(const rdcstr &filename, const rdcstr &filety
 ResultDetails CaptureFile::OpenBuffer(const bytebuf &buffer, const rdcstr &filetype,
                                       RENDERDOC_ProgressCallback progress)
 {
-  CaptureImporter importer = RenderDoc::Inst().GetCaptureImporter(filetype);
+  CaptureImporter importer = SanQiCapture::Inst().GetCaptureImporter(filetype);
 
   if(importer)
   {
@@ -297,7 +297,7 @@ ResultDetails CaptureFile::Init()
 
   uint64_t fileMachineIdent = m_RDC->GetMachineIdent();
 
-  m_Support = RenderDoc::Inst().HasReplayDriver(driverType) ? ReplaySupport::Supported
+  m_Support = SanQiCapture::Inst().HasReplayDriver(driverType) ? ReplaySupport::Supported
                                                             : ReplaySupport::Unsupported;
 
   if(fileMachineIdent != 0)
@@ -324,9 +324,9 @@ RDResult CaptureFile::InitStructuredData(RENDERDOC_ProgressCallback progress)
   {
     if(m_RDC && m_RDC->SectionIndex(SectionType::FrameCapture) >= 0)
     {
-      StructuredProcessor proc = RenderDoc::Inst().GetStructuredProcessor(m_RDC->GetDriver());
+      StructuredProcessor proc = SanQiCapture::Inst().GetStructuredProcessor(m_RDC->GetDriver());
 
-      RenderDoc::Inst().SetProgressCallback<LoadProgress>(progress);
+      SanQiCapture::Inst().SetProgressCallback<LoadProgress>(progress);
 
       RDResult result;
 
@@ -336,7 +336,7 @@ RDResult CaptureFile::InitStructuredData(RENDERDOC_ProgressCallback progress)
         SET_ERROR_RESULT(result, ResultCode::APIUnsupported,
                          "Can't get structured data for driver %s", m_RDC->GetDriverName().c_str());
 
-      RenderDoc::Inst().SetProgressCallback<LoadProgress>(RENDERDOC_ProgressCallback());
+      SanQiCapture::Inst().SetProgressCallback<LoadProgress>(RENDERDOC_ProgressCallback());
 
       return result;
     }
@@ -366,11 +366,11 @@ rdcpair<ResultDetails, IReplayController *> CaptureFile::OpenCapture(const Repla
 
   LogReplayOptions(opts);
 
-  RenderDoc::Inst().SetProgressCallback<LoadProgress>(progress);
+  SanQiCapture::Inst().SetProgressCallback<LoadProgress>(progress);
 
   ret = render->CreateDevice(m_RDC, opts);
 
-  RenderDoc::Inst().SetProgressCallback<LoadProgress>(RENDERDOC_ProgressCallback());
+  SanQiCapture::Inst().SetProgressCallback<LoadProgress>(RENDERDOC_ProgressCallback());
 
   if(!ret.OK())
   {
@@ -430,7 +430,7 @@ ResultDetails CaptureFile::Convert(const rdcstr &filename, const rdcstr &filetyp
   RENDERDOC_ProgressCallback fetchProgress = [progress](float p) { progress(p * 0.5f); };
   RENDERDOC_ProgressCallback exportProgress = [progress](float p) { progress(0.5f + p * 0.5f); };
 
-  CaptureExporter exporter = RenderDoc::Inst().GetCaptureExporter(filetype);
+  CaptureExporter exporter = SanQiCapture::Inst().GetCaptureExporter(filetype);
 
   if(exporter)
   {

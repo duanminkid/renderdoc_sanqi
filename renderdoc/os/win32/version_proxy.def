@@ -1,0 +1,19 @@
+; d3d11_proxy.def - Full export forwarding for d3d11.dll proxy
+; Must export ALL functions that the real d3d11.dll exports to avoid
+; detection by anti-cheat export table comparison.
+
+LIBRARY d3d11
+
+EXPORTS
+    ; Core D3D11 functions (proxied with hooks)
+    D3D11CreateDevice               = Proxy_D3D11CreateDevice
+    D3D11CreateDeviceAndSwapChain   = Proxy_D3D11CreateDeviceAndSwapChain
+
+    ; Additional D3D11 exports (forwarded to real d3d11.dll)
+    ; These are resolved at runtime via GetProcAddress in version_proxy.cpp
+    D3D11CoreCreateDevice           = Proxy_D3D11CoreCreateDevice
+    D3D11CoreCreateLayeredDevice    = Proxy_D3D11CoreCreateLayeredDevice
+    D3D11CoreGetLayeredDeviceSize   = Proxy_D3D11CoreGetLayeredDeviceSize
+    D3D11CoreRegisterLayers         = Proxy_D3D11CoreRegisterLayers
+    D3D11CreateDeviceForD3D12       = Proxy_D3D11CreateDeviceForD3D12
+    EnableFeatureLevelUpgrade       = Proxy_EnableFeatureLevelUpgrade

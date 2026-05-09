@@ -816,8 +816,8 @@ void PreForkConfigureHooks()
 {
   rdcarray<EnvironmentModification> modifications;
 
-  GetHookingEnvMods(modifications, RenderDoc::Inst().GetCaptureOptions(),
-                    RenderDoc::Inst().GetCaptureFileTemplate());
+  GetHookingEnvMods(modifications, SanQiCapture::Inst().GetCaptureOptions(),
+                    SanQiCapture::Inst().GetCaptureFileTemplate());
 
   ApplyEnvironmentModifications(modifications);
 }
@@ -857,8 +857,8 @@ void GetHookedEnvp(char *const *envp, rdcstr &envpStr, rdcarray<char *> &modifie
 {
   rdcarray<EnvironmentModification> modifications;
 
-  GetHookingEnvMods(modifications, RenderDoc::Inst().GetCaptureOptions(),
-                    RenderDoc::Inst().GetCaptureFileTemplate());
+  GetHookingEnvMods(modifications, SanQiCapture::Inst().GetCaptureOptions(),
+                    SanQiCapture::Inst().GetCaptureFileTemplate());
 
   std::map<rdcstr, rdcstr> envmap = EnvStringToEnvMap(envp);
 

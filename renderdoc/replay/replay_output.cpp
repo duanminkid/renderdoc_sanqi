@@ -127,7 +127,7 @@ ReplayOutput::ReplayOutput(ReplayController *parent, WindowingData window, Repla
 
   m_CustomShaderResourceId = ResourceId();
 
-  RenderDoc::Inst().RegisterMemoryRegion(this, sizeof(ReplayController));
+  SanQiCapture::Inst().RegisterMemoryRegion(this, sizeof(ReplayController));
 }
 
 ReplayOutput::~ReplayOutput()
@@ -420,8 +420,8 @@ bytebuf ReplayOutput::DrawThumbnail(int32_t width, int32_t height, ResourceId te
   {
     m_pDevice->BindOutputWindow(outputID, false);
 
-    FloatVector dark = RenderDoc::Inst().DarkCheckerboardColor();
-    FloatVector light = RenderDoc::Inst().LightCheckerboardColor();
+    FloatVector dark = SanQiCapture::Inst().DarkCheckerboardColor();
+    FloatVector light = SanQiCapture::Inst().LightCheckerboardColor();
 
     FloatVector dark2;
     dark2.x = light.x;
@@ -654,8 +654,8 @@ void ReplayOutput::ClearBackground(uint64_t outputID, const FloatVector &backgro
 
   if(backgroundColor.x == 0.0f && backgroundColor.y == 0.0f && backgroundColor.z == 0.0f &&
      backgroundColor.w == 0.0f)
-    m_pDevice->RenderCheckerboard(RenderDoc::Inst().DarkCheckerboardColor(),
-                                  RenderDoc::Inst().LightCheckerboardColor());
+    m_pDevice->RenderCheckerboard(SanQiCapture::Inst().DarkCheckerboardColor(),
+                                  SanQiCapture::Inst().LightCheckerboardColor());
   else
     m_pDevice->ClearOutputWindowColor(outputID, ConvertSRGBToLinear(backgroundColor));
 
@@ -837,8 +837,8 @@ void ReplayOutput::Display()
     {
       m_pDevice->BindOutputWindow(m_Thumbnails[i].outputID, false);
 
-      FloatVector dark = RenderDoc::Inst().DarkCheckerboardColor();
-      FloatVector light = RenderDoc::Inst().LightCheckerboardColor();
+      FloatVector dark = SanQiCapture::Inst().DarkCheckerboardColor();
+      FloatVector light = SanQiCapture::Inst().LightCheckerboardColor();
 
       FloatVector dark2;
       dark2.x = light.x;
@@ -1008,8 +1008,8 @@ void ReplayOutput::DisplayMesh()
     m_pDevice->BindOutputWindow(m_MainOutput.outputID, false);
     m_pDevice->ClearOutputWindowColor(m_MainOutput.outputID, color);
     m_pDevice->ClearOutputWindowDepth(m_MainOutput.outputID, 1.0f, 0);
-    m_pDevice->RenderCheckerboard(RenderDoc::Inst().DarkCheckerboardColor(),
-                                  RenderDoc::Inst().LightCheckerboardColor());
+    m_pDevice->RenderCheckerboard(SanQiCapture::Inst().DarkCheckerboardColor(),
+                                  SanQiCapture::Inst().LightCheckerboardColor());
     m_pController->FatalErrorCheck();
 
     return;
@@ -1027,8 +1027,8 @@ void ReplayOutput::DisplayMesh()
   m_pDevice->BindOutputWindow(m_MainOutput.outputID, true);
   m_pDevice->ClearOutputWindowDepth(m_MainOutput.outputID, 1.0f, 0);
 
-  m_pDevice->RenderCheckerboard(RenderDoc::Inst().DarkCheckerboardColor(),
-                                RenderDoc::Inst().LightCheckerboardColor());
+  m_pDevice->RenderCheckerboard(SanQiCapture::Inst().DarkCheckerboardColor(),
+                                SanQiCapture::Inst().LightCheckerboardColor());
   m_pController->FatalErrorCheck();
 
   m_pDevice->ClearOutputWindowDepth(m_MainOutput.outputID, 1.0f, 0);
@@ -1056,7 +1056,7 @@ void ReplayOutput::DisplayMesh()
   // lighter grey with blue tinge to contrast from main/instance draws
   FloatVector passDraws(0.2f, 0.2f, 0.25f, 1.0f);
 
-  if(RenderDoc::Inst().IsDarkTheme())
+  if(SanQiCapture::Inst().IsDarkTheme())
   {
     drawItself = FloatVector(1.0f, 0.8f, 0.8f, 1.0f);
     otherInstances = FloatVector(0.78f, 0.6f, 0.6f, 1.0f);

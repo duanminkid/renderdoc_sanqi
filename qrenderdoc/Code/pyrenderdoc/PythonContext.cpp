@@ -51,7 +51,7 @@ PyTypeObject **SbkPySide2_QtWidgetsTypes = NULL;
 // for non-windows, this message is displayed at CMake time.
 #ifdef _MSC_VER
 #pragma message( \
-    "Building without PySide2 - Qt will not be accessible in python scripting. See https://github.com/baldurk/renderdoc/wiki/PySide2")
+    "Building without PySide2 - Qt will not be accessible in python scripting. See https://www.sanqitech.internal/")
 #endif
 
 #endif
@@ -110,7 +110,7 @@ static inline QString ToQStr(PyObject *value)
   return QString();
 }
 
-static wchar_t program_name[] = L"qrenderdoc";
+static wchar_t program_name[] = L"sqcapture";
 static wchar_t python_home[1024] = {0};
 
 struct OutputRedirector

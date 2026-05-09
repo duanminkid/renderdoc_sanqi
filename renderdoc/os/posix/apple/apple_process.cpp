@@ -224,5 +224,5 @@ uint64_t Process::GetMemoryUsage()
 // <Carbon/Carbon.h> and "core/core.h"
 bool ShouldOutputDebugMon()
 {
-  return OSUtility::DebuggerPresent() && RenderDoc::Inst().IsReplayApp();
+  return OSUtility::DebuggerPresent() && SanQiCapture::Inst().IsReplayApp();
 }

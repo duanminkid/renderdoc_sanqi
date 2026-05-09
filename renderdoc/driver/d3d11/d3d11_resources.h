@@ -530,7 +530,7 @@ public:
   WrappedID3D11Buffer(ID3D11Buffer *real, uint32_t byteLength, WrappedID3D11Device *device)
       : WrappedResource11(real, device)
   {
-    if(RenderDoc::Inst().IsReplayApp())
+    if(SanQiCapture::Inst().IsReplayApp())
     {
       RDCASSERT(m_BufferList.find(GetResourceID()) == m_BufferList.end());
       m_BufferList[GetResourceID()] = BufferEntry(this, byteLength);
@@ -548,7 +548,7 @@ public:
 
   virtual ~WrappedID3D11Buffer()
   {
-    if(RenderDoc::Inst().IsReplayApp())
+    if(SanQiCapture::Inst().IsReplayApp())
     {
       if(m_BufferList.find(GetResourceID()) != m_BufferList.end())
         m_BufferList.erase(GetResourceID());
@@ -585,7 +585,7 @@ public:
   {
     if(type != TEXDISPLAY_UNKNOWN)
     {
-      if(RenderDoc::Inst().IsReplayApp())
+      if(SanQiCapture::Inst().IsReplayApp())
       {
         RDCASSERT(m_TextureList.find(GetResourceID()) == m_TextureList.end());
         m_TextureList[GetResourceID()] = TextureEntry(this, type);
@@ -595,7 +595,7 @@ public:
 
   virtual ~WrappedTexture()
   {
-    if(RenderDoc::Inst().IsReplayApp())
+    if(SanQiCapture::Inst().IsReplayApp())
     {
       if(m_TextureList.find(GetResourceID()) != m_TextureList.end())
         m_TextureList.erase(GetResourceID());

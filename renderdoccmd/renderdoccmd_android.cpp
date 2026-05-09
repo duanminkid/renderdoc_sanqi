@@ -190,7 +190,7 @@ float circle(in vec2 uv, in vec2 centre, in float radius)
   return length(uv - centre) - radius;
 }
 
-// distance field for RenderDoc logo
+// distance field for SanQi Capture logo
 float logo(in vec2 uv)
 {
   // add the outer ring

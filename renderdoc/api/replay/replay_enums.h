@@ -32,7 +32,7 @@ DOCUMENT(R"(The types of several pre-defined and known sections. This allows con
 to recognise and understand the contents of the section.
 
 Note that sections above the highest value here may be encountered if they were written in a new
-version of RenderDoc that addes a new section type. They should be considered equal to
+version of SanQiCapture that addes a new section type. They should be considered equal to
 :data:`Unknown` by any processing.
 
 .. data:: Unknown
@@ -41,7 +41,7 @@ version of RenderDoc that addes a new section type. They should be considered eq
 
 .. data:: FrameCapture
 
-  This section contains the actual captured frame, in RenderDoc's internal chunked representation.
+  This section contains the actual captured frame, in SanQi Capture's internal chunked representation.
   The contents can be fetched as structured data with or without replaying the frame.
 
   The name for this section will be "renderdoc/internal/framecapture".
@@ -4207,11 +4207,11 @@ a remote server.
 
 .. data:: DataNotAvailable
 
-  Data was requested through RenderDoc's API which is not available.
+  Data was requested through SanQi Capture's API which is not available.
 
 .. data:: InvalidParameter
 
-  An invalid parameter was passed to RenderDoc's API.
+  An invalid parameter was passed to SanQi Capture's API.
 
 .. data:: CompressionFailed
 
@@ -4904,7 +4904,7 @@ displayed
 
 .. data:: RowMajorMatrix
 
-  This matrix is stored in row-major order in memory, instead of column-major. In RenderDoc values
+  This matrix is stored in row-major order in memory, instead of column-major. In SanQiCapture values
   are always provided row-major regardless, for consistency of access, but if this flag is not
   present then the original values were in column order in memory, so the data has been transposed.
 
@@ -5161,7 +5161,7 @@ registration.
 
 .. data:: Unsupported
 
-  Vulkan is not supported by this build of RenderDoc and the layer cannot be registered.
+  Vulkan is not supported by this build of SanQiCapture and the layer cannot be registered.
 )");
 enum class VulkanLayerFlags : uint32_t
 {

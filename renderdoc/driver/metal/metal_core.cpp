@@ -45,7 +45,7 @@ WriteSerialiser &WrappedMTLDevice::GetThreadSerialiser()
   uint32_t flags = WriteSerialiser::ChunkDuration | WriteSerialiser::ChunkTimestamp |
                    WriteSerialiser::ChunkThreadID;
 
-  if(RenderDoc::Inst().GetCaptureOptions().captureCallstacks)
+  if(SanQiCapture::Inst().GetCaptureOptions().captureCallstacks)
     flags |= WriteSerialiser::ChunkCallstack;
 
   ser->SetChunkMetadataRecording(flags);
@@ -612,7 +612,7 @@ bool WrappedMTLDevice::EndFrameCapture(DeviceOwnedWindow devWnd)
       WaitForGPU();
   }
 
-  RenderDoc::FramePixels fp;
+  SanQiCapture::FramePixels fp;
 
   MTL::Texture *mtlBackBuffer = Unwrap(backBuffer);
 
@@ -664,7 +664,7 @@ bool WrappedMTLDevice::EndFrameCapture(DeviceOwnedWindow devWnd)
   }
 
   RDCFile *rdc =
-      RenderDoc::Inst().CreateRDC(RDCDriver::Metal, m_CapturedFrames.back().frameNumber, fp);
+      SanQiCapture::Inst().CreateRDC(RDCDriver::Metal, m_CapturedFrames.back().frameNumber, fp);
 
   StreamWriter *captureWriter = NULL;
 
@@ -745,7 +745,7 @@ bool WrappedMTLDevice::EndFrameCapture(DeviceOwnedWindow devWnd)
 
       for(auto it = recordlist.begin(); it != recordlist.end(); ++it)
       {
-        RenderDoc::Inst().SetProgress(CaptureProgress::SerialiseFrameContents, idx / num);
+        SanQiCapture::Inst().SetProgress(CaptureProgress::SerialiseFrameContents, idx / num);
         idx += 1.0f;
         it->second->Write(ser);
       }
@@ -756,7 +756,7 @@ bool WrappedMTLDevice::EndFrameCapture(DeviceOwnedWindow devWnd)
   RDCLOG("Captured Metal frame with %f MB capture section in %f seconds",
          double(captureSectionSize) / (1024.0 * 1024.0), m_CaptureTimer.GetMilliseconds() / 1000.0);
 
-  RenderDoc::Inst().FinishCaptureWriting(rdc, m_CapturedFrames.back().frameNumber);
+  SanQiCapture::Inst().FinishCaptureWriting(rdc, m_CapturedFrames.back().frameNumber);
 
   // delete tracked cmd buffers - had to keep them alive until after serialiser flush.
   CaptureClearSubmittedCmdBuffers();
@@ -781,7 +781,7 @@ bool WrappedMTLDevice::DiscardFrameCapture(DeviceOwnedWindow devWnd)
 
   RDCLOG("Discarding frame capture.");
 
-  RenderDoc::Inst().FinishCaptureWriting(NULL, m_CapturedFrames.back().frameNumber);
+  SanQiCapture::Inst().FinishCaptureWriting(NULL, m_CapturedFrames.back().frameNumber);
 
   m_CapturedFrames.pop_back();
 
@@ -939,7 +939,7 @@ void WrappedMTLDevice::CaptureCmdBufEnqueue(MetalResourceRecord *cbRecord)
 void WrappedMTLDevice::AdvanceFrame()
 {
   if(IsBackgroundCapturing(m_State))
-    RenderDoc::Inst().Tick();
+    SanQiCapture::Inst().Tick();
 
   m_FrameCounter++;    // first present becomes frame #1, this function is at the end of the frame
 }
@@ -947,9 +947,9 @@ void WrappedMTLDevice::AdvanceFrame()
 void WrappedMTLDevice::FirstFrame()
 {
   // if we have to capture the first frame, begin capturing immediately
-  if(IsBackgroundCapturing(m_State) && RenderDoc::Inst().ShouldTriggerCapture(0))
+  if(IsBackgroundCapturing(m_State) && SanQiCapture::Inst().ShouldTriggerCapture(0))
   {
-    RenderDoc::Inst().StartFrameCapture(DeviceOwnedWindow(this, NULL));
+    SanQiCapture::Inst().StartFrameCapture(DeviceOwnedWindow(this, NULL));
 
     m_AppControlledCapture = false;
     m_CapturedFrames.back().frameNumber = 0;
@@ -971,9 +971,9 @@ void WrappedMTLDevice::Present(MetalResourceRecord *record)
   CA::MetalLayer *outputLayer = record->cmdInfo->outputLayer;
   DeviceOwnedWindow devWnd(this, outputLayer);
 
-  bool activeWindow = RenderDoc::Inst().IsActiveWindow(devWnd);
+  bool activeWindow = SanQiCapture::Inst().IsActiveWindow(devWnd);
 
-  RenderDoc::Inst().AddActiveDriver(RDCDriver::Metal, true);
+  SanQiCapture::Inst().AddActiveDriver(RDCDriver::Metal, true);
 
   if(!activeWindow)
     return;
@@ -982,12 +982,12 @@ void WrappedMTLDevice::Present(MetalResourceRecord *record)
   {
     RDCASSERT(m_CapturedBackbuffer == NULL);
     m_CapturedBackbuffer = backBuffer;
-    RenderDoc::Inst().EndFrameCapture(devWnd);
+    SanQiCapture::Inst().EndFrameCapture(devWnd);
   }
 
-  if(RenderDoc::Inst().ShouldTriggerCapture(m_FrameCounter) && IsBackgroundCapturing(m_State))
+  if(SanQiCapture::Inst().ShouldTriggerCapture(m_FrameCounter) && IsBackgroundCapturing(m_State))
   {
-    RenderDoc::Inst().StartFrameCapture(devWnd);
+    SanQiCapture::Inst().StartFrameCapture(devWnd);
 
     m_AppControlledCapture = false;
     m_CapturedFrames.back().frameNumber = m_FrameCounter;
@@ -1014,7 +1014,7 @@ void WrappedMTLDevice::RegisterMetalLayer(CA::MetalLayer *mtlLayer)
     TrackedCAMetalLayer::Track(mtlLayer, this);
 
     DeviceOwnedWindow devWnd(this, mtlLayer);
-    RenderDoc::Inst().AddFrameCapturer(devWnd, &m_Capturer);
+    SanQiCapture::Inst().AddFrameCapturer(devWnd, &m_Capturer);
   }
 }
 
@@ -1025,7 +1025,7 @@ void WrappedMTLDevice::UnregisterMetalLayer(CA::MetalLayer *mtlLayer)
   m_CaptureOutputLayers.erase(mtlLayer);
 
   DeviceOwnedWindow devWnd(this, mtlLayer);
-  RenderDoc::Inst().RemoveFrameCapturer(devWnd);
+  SanQiCapture::Inst().RemoveFrameCapturer(devWnd);
 }
 
 void WrappedMTLDevice::RegisterDrawableInfo(CA::MetalDrawable *caMtlDrawable)

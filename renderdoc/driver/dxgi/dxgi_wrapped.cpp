@@ -237,7 +237,7 @@ WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain *real, HWND w, ID3
   {
     Keyboard::AddInputWindow(WindowingSystem::Win32, wnd);
 
-    RenderDoc::Inst().AddFrameCapturer(DeviceOwnedWindow(m_pDevice->GetFrameCapturerDevice(), wnd),
+    SanQiCapture::Inst().AddFrameCapturer(DeviceOwnedWindow(m_pDevice->GetFrameCapturerDevice(), wnd),
                                        m_pDevice->GetFrameCapturer());
   }
 
@@ -254,7 +254,7 @@ WrappedIDXGISwapChain4::~WrappedIDXGISwapChain4()
   {
     Keyboard::RemoveInputWindow(WindowingSystem::Win32, wnd);
 
-    RenderDoc::Inst().RemoveFrameCapturer(DeviceOwnedWindow(m_pDevice->GetFrameCapturerDevice(), wnd));
+    SanQiCapture::Inst().RemoveFrameCapturer(DeviceOwnedWindow(m_pDevice->GetFrameCapturerDevice(), wnd));
   }
 
   m_pDevice->ReleaseSwapchainResources(this, 0, NULL, NULL);
@@ -428,7 +428,7 @@ HRESULT WrappedIDXGISwapChain4::SetFullscreenState(
   WrappedIDXGIOutput6 *wrappedOutput = (WrappedIDXGIOutput6 *)pTarget;
   IDXGIOutput *unwrappedOutput = wrappedOutput ? wrappedOutput->GetReal() : NULL;
 
-  if(RenderDoc::Inst().GetCaptureOptions().allowFullscreen)
+  if(SanQiCapture::Inst().GetCaptureOptions().allowFullscreen)
     return m_pReal->SetFullscreenState(Fullscreen, unwrappedOutput);
 
   return S_OK;
@@ -550,7 +550,7 @@ HRESULT WrappedIDXGISwapChain4::Present(
     /* [in] */ UINT SyncInterval,
     /* [in] */ UINT Flags)
 {
-  if(!RenderDoc::Inst().GetCaptureOptions().allowVSync)
+  if(!SanQiCapture::Inst().GetCaptureOptions().allowVSync)
   {
     SyncInterval = 0;
   }
@@ -567,7 +567,7 @@ HRESULT WrappedIDXGISwapChain4::Present(
 HRESULT WrappedIDXGISwapChain4::Present1(UINT SyncInterval, UINT Flags,
                                          const DXGI_PRESENT_PARAMETERS *pPresentParameters)
 {
-  if(!RenderDoc::Inst().GetCaptureOptions().allowVSync)
+  if(!SanQiCapture::Inst().GetCaptureOptions().allowVSync)
   {
     SyncInterval = 0;
   }
@@ -1246,7 +1246,7 @@ HRESULT WrappedIDXGIFactory::CreateSwapChain(IUnknown *pDevice, DXGI_SWAP_CHAIN_
 
     local.BufferUsage |= DXGI_USAGE_RENDER_TARGET_OUTPUT;
 
-    if(!RenderDoc::Inst().GetCaptureOptions().allowFullscreen)
+    if(!SanQiCapture::Inst().GetCaptureOptions().allowFullscreen)
       local.Windowed = TRUE;
 
     HRESULT ret = m_pReal->CreateSwapChain(wrapDevice->GetRealIUnknown(), desc, ppSwapChain);
@@ -1288,7 +1288,7 @@ HRESULT WrappedIDXGIFactory::CreateSwapChainForHwnd(
 
     local.BufferUsage |= DXGI_USAGE_RENDER_TARGET_OUTPUT;
 
-    if(!RenderDoc::Inst().GetCaptureOptions().allowFullscreen && pFullscreenDesc)
+    if(!SanQiCapture::Inst().GetCaptureOptions().allowFullscreen && pFullscreenDesc)
     {
       pFullscreenDesc = NULL;
     }
@@ -1322,7 +1322,7 @@ HRESULT WrappedIDXGIFactory::CreateSwapChainForCoreWindow(IUnknown *pDevice, IUn
   WrappedIDXGIOutput6 *wrappedOutput = (WrappedIDXGIOutput6 *)pRestrictToOutput;
   IDXGIOutput *unwrappedOutput = wrappedOutput ? wrappedOutput->GetReal() : NULL;
 
-  if(!RenderDoc::Inst().GetCaptureOptions().allowFullscreen)
+  if(!SanQiCapture::Inst().GetCaptureOptions().allowFullscreen)
   {
     RDCWARN("Impossible to disallow fullscreen on call to CreateSwapChainForCoreWindow");
   }
@@ -1373,7 +1373,7 @@ HRESULT WrappedIDXGIFactory::CreateSwapChainForComposition(IUnknown *pDevice,
   WrappedIDXGIOutput6 *wrappedOutput = (WrappedIDXGIOutput6 *)pRestrictToOutput;
   IDXGIOutput *unwrappedOutput = wrappedOutput ? wrappedOutput->GetReal() : NULL;
 
-  if(!RenderDoc::Inst().GetCaptureOptions().allowFullscreen)
+  if(!SanQiCapture::Inst().GetCaptureOptions().allowFullscreen)
   {
     RDCWARN("Impossible to disallow fullscreen on call to CreateSwapChainForComposition");
   }

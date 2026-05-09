@@ -360,7 +360,7 @@ bool EnableD3D12DebugLayer(D3D12DevConfiguration *devConfig,
 
     RDCDEBUG("Enabling debug layer");
 
-    if(RenderDoc::Inst().IsReplayApp() && D3D12_Debug_EnableGPUVA())
+    if(SanQiCapture::Inst().IsReplayApp() && D3D12_Debug_EnableGPUVA())
     {
       ID3D12Debug1 *debug1 = NULL;
       HRESULT hr = debug->QueryInterface(__uuidof(ID3D12Debug1), (void **)&debug1);

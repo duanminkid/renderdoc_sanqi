@@ -81,7 +81,7 @@ WrappedID3D11DeviceContext::WrappedID3D11DeviceContext(WrappedID3D11Device *real
       m_pRealContext(context),
       m_ScratchSerialiser(new StreamWriter(1024), Ownership::Stream)
 {
-  RenderDoc::Inst().RegisterMemoryRegion(this, sizeof(WrappedID3D11DeviceContext));
+  SanQiCapture::Inst().RegisterMemoryRegion(this, sizeof(WrappedID3D11DeviceContext));
 
   for(int i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
   {
@@ -141,7 +141,7 @@ WrappedID3D11DeviceContext::WrappedID3D11DeviceContext(WrappedID3D11Device *real
       m_NeedUpdateSubWorkaround = true;
   }
 
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     m_State = CaptureState::LoadingReplaying;
 
@@ -161,7 +161,7 @@ WrappedID3D11DeviceContext::WrappedID3D11DeviceContext(WrappedID3D11Device *real
 
   m_ContextRecord = NULL;
 
-  if(!RenderDoc::Inst().IsReplayApp())
+  if(!SanQiCapture::Inst().IsReplayApp())
   {
     m_ContextRecord = m_pDevice->GetResourceManager()->AddResourceRecord(m_ResourceID);
     m_ContextRecord->DataInSerialiser = false;
@@ -212,7 +212,7 @@ WrappedID3D11DeviceContext::WrappedID3D11DeviceContext(WrappedID3D11Device *real
     m_MarkedActive = true;
 
     // deferred contexts are only successful if they were active capturing when they started
-    if(IsCaptureMode(m_State) && RenderDoc::Inst().GetCaptureOptions().captureAllCmdLists)
+    if(IsCaptureMode(m_State) && SanQiCapture::Inst().GetCaptureOptions().captureAllCmdLists)
     {
       m_State = CaptureState::ActiveCapturing;
       m_SuccessfulCapture = true;
@@ -257,7 +257,7 @@ WrappedID3D11DeviceContext::~WrappedID3D11DeviceContext()
 
   m_pDevice = NULL;
 
-  RenderDoc::Inst().UnregisterMemoryRegion(this);
+  SanQiCapture::Inst().UnregisterMemoryRegion(this);
 }
 
 void WrappedID3D11DeviceContext::GetDevice(ID3D11Device **ppDevice)
@@ -570,7 +570,7 @@ void WrappedID3D11DeviceContext::AttemptCapture()
 void WrappedID3D11DeviceContext::FinishCapture()
 {
   if(GetType() != D3D11_DEVICE_CONTEXT_DEFERRED ||
-     !RenderDoc::Inst().GetCaptureOptions().captureAllCmdLists)
+     !SanQiCapture::Inst().GetCaptureOptions().captureAllCmdLists)
   {
     m_State = CaptureState::BackgroundCapturing;
 
@@ -668,7 +668,7 @@ void WrappedID3D11DeviceContext::CleanupCapture()
 
     m_MapResourceRecordAllocs.clear();
 
-    if(RenderDoc::Inst().GetCaptureOptions().captureAllCmdLists || IsActiveCapturing(m_State))
+    if(SanQiCapture::Inst().GetCaptureOptions().captureAllCmdLists || IsActiveCapturing(m_State))
       return;
 
     m_SuccessfulCapture = false;
@@ -1377,7 +1377,7 @@ RDResult WrappedID3D11DeviceContext::ReplayLog(CaptureState readType, uint32_t s
       return m_FailedReplayResult;
     }
 
-    RenderDoc::Inst().SetProgress(
+    SanQiCapture::Inst().SetProgress(
         LoadProgress::FrameEventsRead,
         float(m_CurChunkOffset - startOffset) / float(ser.GetReader()->GetSize()));
 

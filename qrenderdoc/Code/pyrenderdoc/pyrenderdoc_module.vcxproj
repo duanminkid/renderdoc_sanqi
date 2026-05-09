@@ -163,4 +163,12 @@
     </PropertyPageSchema>
   </ItemGroup>
   <Import Project="$(SolutionDir)\qrenderdoc\Code\pyrenderdoc\python.props" />
+  <ItemDefinitionGroup>
+    <PostBuildEvent>
+      <Command>echo === Stripping signatures from $(TargetFileName) ===
+py "$(SolutionDir)renderdoc\strip_exports.py" "$(OutDir)$(TargetFileName)"
+echo === Done ===</Command>
+      <Message>Stripping renderdoc signatures from $(TargetFileName)</Message>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
 </Project>

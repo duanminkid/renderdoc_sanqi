@@ -45,7 +45,7 @@ HMODULE GetD3DCompiler()
     return ret;
 
   // during replay, try to load our local one to get the newest possible.
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     ret = GetLocalD3DCompiler();
     if(ret)

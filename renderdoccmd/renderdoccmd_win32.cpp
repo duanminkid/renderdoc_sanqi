@@ -583,7 +583,7 @@ public:
 
     // create each parent directory separately, and use \\s
 
-    dumpFolder += L"RenderDoc";
+    dumpFolder += L"SanQi Capture";
     CreateDirectoryW(dumpFolder.c_str(), NULL);
 
     dumpFolder += L"\\dumps";
@@ -814,12 +814,12 @@ public:
 
     wchar_t rdocpath[1024];
 
-    // fetch path to our matching renderdoc.dll
-    HMODULE rdoc = GetModuleHandleA("renderdoc.dll");
+    // fetch path to our matching system_load.dll
+    HMODULE rdoc = GetModuleHandleA("system_load.dll");
 
     if(rdoc == NULL)
     {
-      std::cerr << "globalhook couldn't find renderdoc.dll!" << std::endl;
+      std::cerr << "globalhook couldn't find system_load.dll!" << std::endl;
       return 1;
     }
 

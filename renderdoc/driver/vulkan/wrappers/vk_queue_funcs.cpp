@@ -1469,7 +1469,7 @@ VkResult WrappedVulkan::vkQueueSubmit(VkQueue queue, uint32_t submitCount,
   if(!m_MarkedActive)
   {
     m_MarkedActive = true;
-    RenderDoc::Inst().AddActiveDriver(RDCDriver::Vulkan, false);
+    SanQiCapture::Inst().AddActiveDriver(RDCDriver::Vulkan, false);
   }
 
   if(IsActiveCapturing(m_State))
@@ -1477,7 +1477,7 @@ VkResult WrappedVulkan::vkQueueSubmit(VkQueue queue, uint32_t submitCount,
     // 15 is quite a lot of submissions.
     const int expectedMaxSubmissions = 15;
 
-    RenderDoc::Inst().SetProgress(CaptureProgress::FrameCapture,
+    SanQiCapture::Inst().SetProgress(CaptureProgress::FrameCapture,
                                   FakeProgress(m_SubmitCounter, expectedMaxSubmissions));
     m_SubmitCounter++;
   }
@@ -1503,7 +1503,7 @@ VkResult WrappedVulkan::vkQueueSubmit(VkQueue queue, uint32_t submitCount,
 
   if(beginCapture)
   {
-    RenderDoc::Inst().StartFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    SanQiCapture::Inst().StartFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
   }
 
   {
@@ -1557,7 +1557,7 @@ VkResult WrappedVulkan::vkQueueSubmit(VkQueue queue, uint32_t submitCount,
 
   if(endCapture)
   {
-    RenderDoc::Inst().EndFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    SanQiCapture::Inst().EndFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
   }
 
   if(present)
@@ -1637,7 +1637,7 @@ VkResult WrappedVulkan::vkQueueSubmit2(VkQueue queue, uint32_t submitCount,
   if(!m_MarkedActive)
   {
     m_MarkedActive = true;
-    RenderDoc::Inst().AddActiveDriver(RDCDriver::Vulkan, false);
+    SanQiCapture::Inst().AddActiveDriver(RDCDriver::Vulkan, false);
   }
 
   if(IsActiveCapturing(m_State))
@@ -1645,7 +1645,7 @@ VkResult WrappedVulkan::vkQueueSubmit2(VkQueue queue, uint32_t submitCount,
     // 15 is quite a lot of submissions.
     const int expectedMaxSubmissions = 15;
 
-    RenderDoc::Inst().SetProgress(CaptureProgress::FrameCapture,
+    SanQiCapture::Inst().SetProgress(CaptureProgress::FrameCapture,
                                   FakeProgress(m_SubmitCounter, expectedMaxSubmissions));
     m_SubmitCounter++;
   }
@@ -1671,7 +1671,7 @@ VkResult WrappedVulkan::vkQueueSubmit2(VkQueue queue, uint32_t submitCount,
 
   if(beginCapture)
   {
-    RenderDoc::Inst().StartFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    SanQiCapture::Inst().StartFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
   }
 
   {
@@ -1725,7 +1725,7 @@ VkResult WrappedVulkan::vkQueueSubmit2(VkQueue queue, uint32_t submitCount,
 
   if(endCapture)
   {
-    RenderDoc::Inst().EndFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    SanQiCapture::Inst().EndFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
   }
 
   if(present)

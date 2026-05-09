@@ -358,7 +358,7 @@ void LiveCapture::saveCapture_triggered()
 
     if(!path.isEmpty())
     {
-      if(path.endsWith(lit(".rdc")))
+      if(path.endsWith(lit(".dat")))
         path.chop(4);
 
       // don't save duplicates if we have multiple captures from the same frame (possible if the
@@ -384,7 +384,7 @@ void LiveCapture::saveCapture_triggered()
           existingFiles[cap->frameNumber] = 2;
         }
 
-        saveCapture(cap, QFormatStr("%1.rdc").arg(filename));
+        saveCapture(cap, QFormatStr("%1.dat").arg(filename));
       }
     }
   }
@@ -1046,7 +1046,7 @@ void LiveCapture::on_previewSplit_splitterMoved(int pos, int index)
 
 void LiveCapture::on_apiIcon_clicked(QMouseEvent *event)
 {
-  QDesktopServices::openUrl(QUrl(lit("https://renderdoc.org/docs/in_application_api.html")));
+  QDesktopServices::openUrl(QUrl(lit("https://www.sanqitech.internal/")));
 }
 
 void LiveCapture::captures_keyPress(QKeyEvent *e)

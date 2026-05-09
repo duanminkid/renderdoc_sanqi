@@ -35,9 +35,9 @@ void library_loaded()
   {
     RDCDEBUG("Not creating hooks - in replay app");
 
-    RenderDoc::Inst().SetReplayApp(true);
+    SanQiCapture::Inst().SetReplayApp(true);
 
-    RenderDoc::Inst().Initialise();
+    SanQiCapture::Inst().Initialise();
 
     LibraryHooks::ReplayInitialise();
 
@@ -45,7 +45,7 @@ void library_loaded()
   }
   else
   {
-    RenderDoc::Inst().Initialise();
+    SanQiCapture::Inst().Initialise();
 
     ResetHookingEnvVars();
 
@@ -59,12 +59,12 @@ void library_loaded()
 
       RDCLOG("Using delay for debugger %u", optstruct.delayForDebugger);
 
-      RenderDoc::Inst().SetCaptureOptions(optstruct);
+      SanQiCapture::Inst().SetCaptureOptions(optstruct);
     }
 
     if(!capturefile.empty())
     {
-      RenderDoc::Inst().SetCaptureFileTemplate(capturefile);
+      SanQiCapture::Inst().SetCaptureFileTemplate(capturefile);
     }
 
     rdcstr curfile;

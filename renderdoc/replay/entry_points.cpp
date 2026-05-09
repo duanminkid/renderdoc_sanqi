@@ -204,7 +204,7 @@ extern "C" RENDERDOC_API const char *RENDERDOC_CC RENDERDOC_GetVersionString()
   return MAJOR_MINOR_VERSION_STRING;
 }
 
-extern "C" RENDERDOC_API bool RENDERDOC_CC RENDERDOC_IsReleaseBuild()
+__declspec(noinline) extern "C" RENDERDOC_API bool RENDERDOC_CC RENDERDOC_IsReleaseBuild()
 {
 #if ENABLED(RDOC_RELEASE)
   return true;
@@ -220,7 +220,7 @@ extern "C" RENDERDOC_API const char *RENDERDOC_CC RENDERDOC_GetCommitHash()
 
 extern "C" RENDERDOC_API DriverInformation RENDERDOC_CC RENDERDOC_GetDriverInformation(GraphicsAPI api)
 {
-  return RenderDoc::Inst().GetDriverInformation(api);
+  return SanQiCapture::Inst().GetDriverInformation(api);
 }
 
 extern "C" RENDERDOC_API uint64_t RENDERDOC_CC RENDERDOC_GetCurrentProcessMemoryUsage()
@@ -230,26 +230,26 @@ extern "C" RENDERDOC_API uint64_t RENDERDOC_CC RENDERDOC_GetCurrentProcessMemory
 
 extern "C" RENDERDOC_API const SDObject *RENDERDOC_CC RENDERDOC_GetConfigSetting(const rdcstr &name)
 {
-  return RenderDoc::Inst().GetConfigSetting(name);
+  return SanQiCapture::Inst().GetConfigSetting(name);
 }
 
-extern "C" RENDERDOC_API SDObject *RENDERDOC_CC RENDERDOC_SetConfigSetting(const rdcstr &name)
+__declspec(noinline) extern "C" RENDERDOC_API SDObject *RENDERDOC_CC RENDERDOC_SetConfigSetting(const rdcstr &name)
 {
-  return RenderDoc::Inst().SetConfigSetting(name);
+  return SanQiCapture::Inst().SetConfigSetting(name);
 }
 
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_SaveConfigSettings()
 {
-  return RenderDoc::Inst().SaveConfigSettings();
+  return SanQiCapture::Inst().SaveConfigSettings();
 }
 
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_SetColors(FloatVector darkChecker,
                                                                FloatVector lightChecker,
                                                                bool darkTheme)
 {
-  RenderDoc::Inst().SetDarkCheckerboardColor(darkChecker);
-  RenderDoc::Inst().SetLightCheckerboardColor(lightChecker);
-  RenderDoc::Inst().SetDarkTheme(darkTheme);
+  SanQiCapture::Inst().SetDarkCheckerboardColor(darkChecker);
+  SanQiCapture::Inst().SetLightCheckerboardColor(lightChecker);
+  SanQiCapture::Inst().SetDarkTheme(darkTheme);
 }
 
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_SetDebugLogFile(const rdcstr &log)
@@ -259,7 +259,7 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_SetDebugLogFile(const rdcst
     RDCLOGFILE(log.c_str());
 
     // need to recreate the crash handler to propagate the new log filename.
-    RenderDoc::Inst().RecreateCrashHandler();
+    SanQiCapture::Inst().RecreateCrashHandler();
   }
 }
 
@@ -308,7 +308,7 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_GetLogFileContents(uint64_t
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_InitialiseReplay(GlobalEnvironment env,
                                                                       const rdcarray<rdcstr> &args)
 {
-  RenderDoc::Inst().InitialiseReplay(env, args);
+  SanQiCapture::Inst().InitialiseReplay(env, args);
 }
 
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_ShutdownReplay()
@@ -320,7 +320,7 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_ShutdownReplay()
     detailStrings.clear();
   }
 
-  RenderDoc::Inst().ShutdownReplay();
+  SanQiCapture::Inst().ShutdownReplay();
 }
 
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_CreateBugReport(const rdcstr &logfile,
@@ -355,12 +355,12 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_CreateBugReport(const rdcst
 
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_RegisterMemoryRegion(void *base, size_t size)
 {
-  RenderDoc::Inst().RegisterMemoryRegion(base, size);
+  SanQiCapture::Inst().RegisterMemoryRegion(base, size);
 }
 
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_UnregisterMemoryRegion(void *base)
 {
-  RenderDoc::Inst().UnregisterMemoryRegion(base);
+  SanQiCapture::Inst().UnregisterMemoryRegion(base);
 }
 
 extern "C" RENDERDOC_API ExecuteResult RENDERDOC_CC
@@ -398,7 +398,7 @@ extern "C" RENDERDOC_API bool RENDERDOC_CC RENDERDOC_IsGlobalHookActive()
   return Process::IsGlobalHookActive();
 }
 
-extern "C" RENDERDOC_API bool RENDERDOC_CC RENDERDOC_CanGlobalHook()
+__declspec(noinline) extern "C" RENDERDOC_API bool RENDERDOC_CC RENDERDOC_CanGlobalHook()
 {
   return Process::CanGlobalHook();
 }
@@ -452,7 +452,7 @@ extern "C" RENDERDOC_API uint32_t RENDERDOC_CC RENDERDOC_EnumerateRemoteTargets(
   else
     nextIdent++;
 
-  IDeviceProtocolHandler *protocol = RenderDoc::Inst().GetDeviceProtocol(deviceID);
+  IDeviceProtocolHandler *protocol = SanQiCapture::Inst().GetDeviceProtocol(deviceID);
 
   if(protocol)
   {
@@ -505,13 +505,13 @@ extern "C" RENDERDOC_API uint32_t RENDERDOC_CC RENDERDOC_EnumerateRemoteTargets(
 extern "C" RENDERDOC_API void RENDERDOC_CC
 RENDERDOC_GetSupportedDeviceProtocols(rdcarray<rdcstr> *supportedProtocols)
 {
-  *supportedProtocols = RenderDoc::Inst().GetSupportedDeviceProtocols();
+  *supportedProtocols = SanQiCapture::Inst().GetSupportedDeviceProtocols();
 }
 
 extern "C" RENDERDOC_API IDeviceProtocolController *RENDERDOC_CC
 RENDERDOC_GetDeviceProtocolController(const rdcstr &protocol)
 {
-  return RenderDoc::Inst().GetDeviceProtocol(protocol);
+  return SanQiCapture::Inst().GetDeviceProtocol(protocol);
 }
 
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_BecomeRemoteServer(
@@ -532,7 +532,7 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_BecomeRemoteServer(
   if(port == 0)
     port = RenderDoc_RemoteServerPort;
 
-  RenderDoc::Inst().BecomeRemoteServer(listenhost.empty() ? "0.0.0.0" : listenhost, port,
+  SanQiCapture::Inst().BecomeRemoteServer(listenhost.empty() ? "0.0.0.0" : listenhost, port,
                                        killReplay, previewWindow);
 }
 
@@ -600,7 +600,7 @@ RENDERDOC_NeedVulkanLayerRegistration(VulkanLayerRegistrationInfo *info)
   rdcarray<rdcstr> myJSONs;
   rdcarray<rdcstr> otherJSONs;
 
-  bool ret = RenderDoc::Inst().NeedVulkanLayerRegistration(flags, myJSONs, otherJSONs);
+  bool ret = SanQiCapture::Inst().NeedVulkanLayerRegistration(flags, myJSONs, otherJSONs);
 
   if(info)
   {
@@ -620,7 +620,7 @@ RENDERDOC_NeedVulkanLayerRegistration(VulkanLayerRegistrationInfo *info)
 
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_UpdateVulkanLayerRegistration(bool systemLevel)
 {
-  RenderDoc::Inst().UpdateVulkanLayerRegistration(systemLevel);
+  SanQiCapture::Inst().UpdateVulkanLayerRegistration(systemLevel);
 }
 
 extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_UpdateInstalledVersionNumber()
@@ -681,7 +681,7 @@ extern "C" RENDERDOC_API void RENDERDOC_CC RENDERDOC_UpdateInstalledVersionNumbe
         Publisher[0] = 0;
 
       // if this is our key, set the version number
-      if(!strcmp(DisplayName, "RenderDoc") && !strcmp(Publisher, "Baldur Karlsson"))
+      if(!strcmp(DisplayName, "SanQi Capture") && !strcmp(Publisher, "Baldur Karlsson"))
       {
         DWORD Version = (RENDERDOC_VERSION_MAJOR << 24) | (RENDERDOC_VERSION_MINOR << 16);
         DWORD VersionMajor = RENDERDOC_VERSION_MAJOR;

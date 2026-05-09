@@ -379,9 +379,9 @@ uint32_t Serialiser<SerialiserMode::Writing>::BeginChunk(uint32_t chunkID, uint6
       {
         if(m_ChunkMetadata.callstack.empty())
         {
-          bool collect = RenderDoc::Inst().GetCaptureOptions().captureCallstacks;
+          bool collect = SanQiCapture::Inst().GetCaptureOptions().captureCallstacks;
 
-          if(RenderDoc::Inst().GetCaptureOptions().captureCallstacksOnlyActions)
+          if(SanQiCapture::Inst().GetCaptureOptions().captureCallstacksOnlyActions)
             collect = collect && m_ActionChunk;
 
           if(collect)

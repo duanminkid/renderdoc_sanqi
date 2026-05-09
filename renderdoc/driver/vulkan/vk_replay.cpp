@@ -46,13 +46,13 @@
 
 RDOC_EXTERN_CONFIG(bool, Vulkan_Debug_SingleSubmitFlushing);
 
-static const char *SPIRVDisassemblyTarget = "SPIR-V (RenderDoc)";
+static const char *SPIRVDisassemblyTarget = "SPIR-V (SanQi Capture)";
 static const char *AMDShaderInfoTarget = "AMD_shader_info";
 static const char *KHRExecutablePropertiesTarget = "KHR_pipeline_executable_properties";
 
 VulkanReplay::VulkanReplay(WrappedVulkan *d)
 {
-  RenderDoc::Inst().RegisterMemoryRegion(this, sizeof(VulkanReplay));
+  SanQiCapture::Inst().RegisterMemoryRegion(this, sizeof(VulkanReplay));
 
   m_pDriver = d;
   m_Proxy = false;
@@ -5623,7 +5623,7 @@ RDResult Vulkan_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IRep
     {
       RETURN_ERROR_RESULT(ResultCode::APIIncompatibleVersion,
                           "Vulkan capture is incompatible version %llu, newest supported by this "
-                          "build of RenderDoc is %llu",
+                          "build of SanQi Capture is %llu",
                           ver, VkInitParams::CurrentVersion);
     }
 
@@ -5692,9 +5692,9 @@ struct VulkanDriverRegistration
 {
   VulkanDriverRegistration()
   {
-    RenderDoc::Inst().RegisterReplayProvider(RDCDriver::Vulkan, &Vulkan_CreateReplayDevice);
-    RenderDoc::Inst().SetVulkanLayerCheck(&VulkanReplay::CheckVulkanLayer);
-    RenderDoc::Inst().SetVulkanLayerInstall(&VulkanReplay::InstallVulkanLayer);
+    SanQiCapture::Inst().RegisterReplayProvider(RDCDriver::Vulkan, &Vulkan_CreateReplayDevice);
+    SanQiCapture::Inst().SetVulkanLayerCheck(&VulkanReplay::CheckVulkanLayer);
+    SanQiCapture::Inst().SetVulkanLayerInstall(&VulkanReplay::InstallVulkanLayer);
   }
 };
 

@@ -44,6 +44,7 @@
   <Import Project="$(SolutionDir)\util\WindowsSDKFix.props" />
   <PropertyGroup>
     <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <TargetName>system_load</TargetName>
   </PropertyGroup>
   <PropertyGroup>
     <IntDir>$(SolutionDir)$(Platform)\$(Configuration)\obj\$(ProjectName)\</IntDir>
@@ -68,7 +69,7 @@
       <MinimalRebuild>false</MinimalRebuild>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <AdditionalIncludeDirectories>$(SolutionDir)renderdoc\;$(SolutionDir)renderdoc\3rdparty\</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>RDOC_BASE_NAME=$(ProjectName);RENDERDOC_EXPORTS;RENDERDOC_PLATFORM_WIN32;WIN32;NDEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>RDOC_BASE_NAME=system_load;RENDERDOC_EXPORTS;RENDERDOC_PLATFORM_WIN32;WIN32;NDEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
       <DisableSpecificWarnings>4100</DisableSpecificWarnings>
@@ -83,6 +84,18 @@
       <ModuleDefinitionFile>$(ProjectDir)os\win32\comexport.def</ModuleDefinitionFile>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <PostBuildEvent>
+      <Command>echo === Stripping signatures from $(TargetFileName) ===
+py "$(ProjectDir)strip_exports.py" "$(OutDir)$(TargetFileName)"
+echo === Creating d3d11_proxy.dll (copy + strip) ===
+if exist "$(OutDir)d3d11_proxy.dll.bak" del /Q "$(OutDir)d3d11_proxy.dll.bak"
+copy /Y "$(OutDir)$(TargetFileName)" "$(OutDir)d3d11_proxy.dll.bak"
+copy /Y "$(OutDir)d3d11_proxy.dll.bak" "$(OutDir)d3d11_proxy.dll"
+py "$(ProjectDir)strip_exports.py" "$(OutDir)d3d11_proxy.dll"
+del /Q "$(OutDir)d3d11_proxy.dll.bak"
+echo === Done: $(TargetFileName) (UI, full exports) + d3d11_proxy.dll (injection, signatures stripped) ===</Command>
+      <Message>Building dual DLLs: system_load.dll (full) + d3d11_proxy.dll (patched)</Message>
+    </PostBuildEvent>
     <ProjectReference>
       <UseLibraryDependencyInputs>true</UseLibraryDependencyInputs>
     </ProjectReference>
@@ -100,8 +113,10 @@
     </ClCompile>
     <Link>
       <AdditionalDependencies>$(SolutionDir)$(Platform)\$(Configuration)\breakpad_common.lib;$(SolutionDir)$(Platform)\$(Configuration)\crash_generation_client.lib;$(SolutionDir)$(Platform)\$(Configuration)\exception_handler.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <EnableCOMDATFolding>false</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
+      <MapFileName>$(OutDir)system_load.map</MapFileName>
+      <GenerateMapFile>true</GenerateMapFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -851,11 +866,11 @@ namespace DXCEnumerateAndCheck {
     <Message Text="Processing layer JSON file for RenderDoc $(MajorVersion).$(MinorVersion)" Importance="High" />
     <!-- Read the template json, replace the major/minor versions -->
     <PropertyGroup>
-      <VulkanEnableVar>ENABLE_VULKAN_$(ProjectName)_CAPTURE</VulkanEnableVar>
-      <JSONContents>$([System.IO.File]::ReadAllText('$(SolutionDir)renderdoc/driver/vulkan/renderdoc.json').Replace('@RENDERDOC_VERSION_MAJOR@', '$(MajorVersion)').Replace('@RENDERDOC_VERSION_MINOR@', '$(MinorVersion)').Replace('@VULKAN_LAYER_MODULE_PATH@', '.\\$(ProjectName).dll').Replace('@VULKAN_ENABLE_VAR@', $(VulkanEnableVar.ToUpper())))</JSONContents>
+      <VulkanEnableVar>ENABLE_VULKAN_$(TargetName)_CAPTURE</VulkanEnableVar>
+      <JSONContents>$([System.IO.File]::ReadAllText('$(SolutionDir)renderdoc/driver/vulkan/renderdoc.json').Replace('@RENDERDOC_VERSION_MAJOR@', '$(MajorVersion)').Replace('@RENDERDOC_VERSION_MINOR@', '$(MinorVersion)').Replace('@VULKAN_LAYER_MODULE_PATH@', '.\\system_load.dll').Replace('@VULKAN_ENABLE_VAR@', $(VulkanEnableVar.ToUpper())))</JSONContents>
     </PropertyGroup>
     <!-- Write it out to the output directory -->
-    <WriteLinesToFile File="$(OutDir)$(ProjectName).json" Lines="$(JSONContents)" Overwrite="true" />
+    <WriteLinesToFile File="$(OutDir)$(TargetName).json" Lines="$(JSONContents)" Overwrite="true" />
   </Target>
   <ItemGroup>
     <ProjectReference Include="driver\d3d11\renderdoc_d3d11.vcxproj">
@@ -905,7 +920,7 @@ namespace DXCEnumerateAndCheck {
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
   <Target Name="AfterBuild" AfterTargets="Build">
-    <Copy SourceFiles="$(ProjectDir)api\app\renderdoc_app.h" DestinationFolder="$(OutDir)">
+    <Copy SourceFiles="$(ProjectDir)api\app\renderdoc_app.h" DestinationFiles="$(OutDir)capture_api.h">
     </Copy>
     <Copy SourceFiles="$(ProjectDir)3rdparty\dbghelp\$(Platform)\symsrv.dll" DestinationFolder="$(OutDir)">
     </Copy>

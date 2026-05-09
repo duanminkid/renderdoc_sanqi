@@ -501,7 +501,7 @@ WrappedID3D12CommandQueue::WrappedID3D12CommandQueue(ID3D12CommandQueue *real,
       m_WrappedDownlevel(*this),
       m_WrappedCompat(*this)
 {
-  RenderDoc::Inst().RegisterMemoryRegion(this, sizeof(WrappedID3D12CommandQueue));
+  SanQiCapture::Inst().RegisterMemoryRegion(this, sizeof(WrappedID3D12CommandQueue));
 
   m_WrappedDebug.m_pQueue = this;
   m_pDownlevel = NULL;
@@ -513,7 +513,7 @@ WrappedID3D12CommandQueue::WrappedID3D12CommandQueue(ID3D12CommandQueue *real,
     m_pReal->QueryInterface(__uuidof(ID3D12CompatibilityQueue), (void **)&m_WrappedCompat.m_pReal);
   }
 
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     m_ReplayList = new WrappedID3D12GraphicsCommandList(NULL, m_pDevice, state);
 
@@ -528,7 +528,7 @@ WrappedID3D12CommandQueue::WrappedID3D12CommandQueue(ID3D12CommandQueue *real,
 
   m_Cmd.m_pDevice = m_pDevice;
 
-  if(!RenderDoc::Inst().IsReplayApp())
+  if(!SanQiCapture::Inst().IsReplayApp())
   {
     m_QueueRecord = m_pDevice->GetResourceManager()->AddResourceRecord(m_ResourceID);
     m_QueueRecord->type = Resource_CommandQueue;
@@ -1277,7 +1277,7 @@ RDResult WrappedID3D12CommandQueue::ReplayLog(CaptureState readType, uint32_t st
     if(m_pDevice->HasFatalError())
       return ResultCode::Succeeded;
 
-    RenderDoc::Inst().SetProgress(
+    SanQiCapture::Inst().SetProgress(
         LoadProgress::FrameEventsRead,
         float(m_Cmd.m_CurChunkOffset - startOffset) / float(ser.GetReader()->GetSize()));
 
@@ -1330,7 +1330,7 @@ WrappedID3D12GraphicsCommandList::WrappedID3D12GraphicsCommandList(ID3D12Graphic
                                                                    CaptureState &state)
     : m_RefCounter(real, false), m_pList(real), m_pDevice(device), m_State(state)
 {
-  RenderDoc::Inst().RegisterMemoryRegion(this, sizeof(WrappedID3D12GraphicsCommandList));
+  SanQiCapture::Inst().RegisterMemoryRegion(this, sizeof(WrappedID3D12GraphicsCommandList));
 
   m_pList1 = NULL;
   m_pList2 = NULL;
@@ -1370,7 +1370,7 @@ WrappedID3D12GraphicsCommandList::WrappedID3D12GraphicsCommandList(ID3D12Graphic
   m_CurGfxRootSig = NULL;
   m_CurCompRootSig = NULL;
 
-  if(!RenderDoc::Inst().IsReplayApp())
+  if(!SanQiCapture::Inst().IsReplayApp())
   {
     m_ListRecord = m_pDevice->GetResourceManager()->AddResourceRecord(m_ResourceID);
     m_ListRecord->type = Resource_GraphicsCommandList;

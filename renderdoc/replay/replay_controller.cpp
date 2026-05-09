@@ -53,7 +53,7 @@ ReplayController::ReplayController()
 
   m_EventID = 100000;
 
-  RenderDoc::Inst().RegisterMemoryRegion(this, sizeof(ReplayController));
+  SanQiCapture::Inst().RegisterMemoryRegion(this, sizeof(ReplayController));
 }
 
 ReplayController::~ReplayController()
@@ -1148,8 +1148,8 @@ ResultDetails ReplayController::SaveTexture(const TextureSave &saveData, const r
           if(sd.alpha == AlphaMapping::BlendToCheckerboard)
           {
             bool lightSquare = ((x / 64) % 2) == ((y / 64) % 2);
-            col = lightSquare ? RenderDoc::Inst().LightCheckerboardColor()
-                              : RenderDoc::Inst().DarkCheckerboardColor();
+            col = lightSquare ? SanQiCapture::Inst().LightCheckerboardColor()
+                              : SanQiCapture::Inst().DarkCheckerboardColor();
           }
 
           col.x = ConvertLinearToSRGB(col.x);
@@ -2189,7 +2189,7 @@ RDResult ReplayController::CreateDevice(RDCFile *rdc, const ReplayOptions &opts)
   RENDERDOC_PROFILEFUNCTION();
 
   IReplayDriver *driver = NULL;
-  RDResult result = RenderDoc::Inst().CreateReplayDriver(rdc, opts, &driver);
+  RDResult result = SanQiCapture::Inst().CreateReplayDriver(rdc, opts, &driver);
 
   if(driver && result == ResultCode::Succeeded)
   {

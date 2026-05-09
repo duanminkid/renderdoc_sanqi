@@ -90,7 +90,7 @@ rdcstr FindFileInPath(const rdcstr &fileName)
   return fileName;
 }
 
-// For RenderDoc's apk, this returns our package name
+// For SanQi Capture's apk, this returns our package name
 // For other APKs, we use it to get the writable temp directory.
 void GetExecutableFilename(rdcstr &selfName)
 {

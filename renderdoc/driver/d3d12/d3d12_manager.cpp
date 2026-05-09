@@ -1249,7 +1249,7 @@ void D3D12RTManager::TickASManagement()
 FILE *OpenCacheFile()
 {
   rdcstr filename = StringFormat::Fmt(
-      "%s/rdoc_as_%llu_%llu.bin", get_dirname(RenderDoc::Inst().GetCaptureFileTemplate()).c_str(),
+      "%s/rdoc_as_%llu_%llu.bin", get_dirname(SanQiCapture::Inst().GetCaptureFileTemplate()).c_str(),
       Timing::GetTick(), Threading::GetCurrentID());
   FILE *file = FileIO::OpenTransientFileHandle(filename, FileIO::OverwriteBinary);
   if(!file)
@@ -3964,7 +3964,7 @@ template void D3D12ResourceManager::SerialiseResourceStates(
 
 void D3D12ResourceManager::SetInternalResource(ID3D12DeviceChild *res)
 {
-  if(!RenderDoc::Inst().IsReplayApp() && res)
+  if(!SanQiCapture::Inst().IsReplayApp() && res)
   {
     D3D12ResourceRecord *record = GetResourceRecord(GetResID(res));
     if(record)

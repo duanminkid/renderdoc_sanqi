@@ -266,7 +266,7 @@ uint64_t Log2Ceil(uint64_t value)
 }
 #endif
 
-// deliberately leak so it doesn't get destroyed before our static RenderDoc destructor needs it
+// deliberately leak so it doesn't get destroyed before our static SanQi Capture destructor needs it
 static rdcstr *logfile = new rdcstr;
 static FileIO::LogFileHandle *logfileHandle = NULL;
 

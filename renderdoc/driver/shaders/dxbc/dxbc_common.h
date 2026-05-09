@@ -358,7 +358,7 @@ struct ShaderInputBind
     TYPE_UAV_CONSUME_STRUCTURED,
     TYPE_UAV_RWSTRUCTURED_WITH_COUNTER,
 
-    // these entries below do not exist in dxbc and so are only set by RenderDoc manually
+    // these entries below do not exist in dxbc and so are only set by SanQi Capture manually
     TYPE_RTAS,
   } type;
 
@@ -397,7 +397,7 @@ struct ShaderInputBind
     DIM_TEXTURECUBEARRAY,
     DIM_BUFFEREX,
 
-    // these entries below do not exist in dxbc and so are only set by RenderDoc manually
+    // these entries below do not exist in dxbc and so are only set by SanQi Capture manually
     DIM_RTAS,
   } dimension;
 

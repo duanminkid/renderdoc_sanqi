@@ -31,7 +31,7 @@ def loadCapture(filename):
 	return cap,controller
 
 if 'pyrenderdoc' in globals():
-	raise RuntimeError("This sample should not be run within the RenderDoc UI")
+	raise RuntimeError("This sample should not be run within the SanQi Capture UI")
 else:
 	if len(sys.argv) <= 1:
 		print('Usage: python3 {} filename.rdc'.format(sys.argv[0]))

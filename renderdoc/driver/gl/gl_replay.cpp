@@ -44,13 +44,13 @@
 RDOC_CONFIG(bool, OpenGL_HardwareCounters, true,
             "Enable support for IHV-specific hardware counters on OpenGL.");
 
-static const char *SPIRVDisassemblyTarget = "SPIR-V (RenderDoc)";
+static const char *SPIRVDisassemblyTarget = "SPIR-V (SanQi Capture)";
 
 GLReplay::GLReplay(WrappedOpenGL *d)
 {
   m_pDriver = d;
 
-  RenderDoc::Inst().RegisterMemoryRegion(this, sizeof(GLReplay));
+  SanQiCapture::Inst().RegisterMemoryRegion(this, sizeof(GLReplay));
 
   m_Proxy = false;
 
@@ -175,7 +175,7 @@ rdcarray<WindowingSystem> GLReplay::GetSupportedWindowSystems()
 #if ENABLED(RDOC_WAYLAND)
   // if wayland is supported and a display is configured, we *must* get wayland surfaces to render
   // on
-  if(RenderDoc::Inst().GetGlobalEnvironment().waylandDisplay)
+  if(SanQiCapture::Inst().GetGlobalEnvironment().waylandDisplay)
   {
     ret.push_back(WindowingSystem::Wayland);
   }
@@ -4570,7 +4570,7 @@ RDResult GL_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IReplayD
 {
   GLPlatform *gl_platform = &GetGLPlatform();
 
-  if(RenderDoc::Inst().GetGlobalEnvironment().waylandDisplay)
+  if(SanQiCapture::Inst().GetGlobalEnvironment().waylandDisplay)
   {
 #if defined(RENDERDOC_SUPPORT_EGL)
     RDCLOG("Forcing EGL device creation for wayland");

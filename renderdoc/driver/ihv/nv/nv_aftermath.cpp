@@ -128,7 +128,7 @@ void GpuShaderDebugInfoCallback(const void *pShaderDebugInfo, const uint32_t sha
 void DescriptionCB(PFN_GFSDK_Aftermath_AddGpuCrashDumpDescription addDescription, void *pUserData)
 {
   addDescription(GFSDK_Aftermath_GpuCrashDumpDescriptionKey_ApplicationName,
-                 "RenderDoc Aftermath Integration");
+                 "SanQi Capture Aftermath Integration");
   addDescription(GFSDK_Aftermath_GpuCrashDumpDescriptionKey_ApplicationVersion,
                  "v" MAJOR_MINOR_VERSION_STRING);
 }

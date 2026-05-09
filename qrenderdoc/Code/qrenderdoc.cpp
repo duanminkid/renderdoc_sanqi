@@ -262,7 +262,7 @@ int main(int argc, char *argv[])
 
       Catch::Session session;
 
-      session.configData().name = "QRenderDoc";
+      session.configData().name = "SQCapture";
       session.configData().shouldDebugBreak = Catch::isDebuggerActive();
 
       ret = session.applyCommandLine(argc, mod_argv);
@@ -325,7 +325,7 @@ int main(int argc, char *argv[])
   QApplication application(argc, argv);
 
   QCommandLineParser parser;
-  parser.setApplicationDescription(tr("Qt UI for RenderDoc"));
+  parser.setApplicationDescription(tr("Qt UI for SanQi Capture"));
   QCommandLineOption helpOption = parser.addHelpOption();
   QCommandLineOption versionOption = parser.addVersionOption();
 
@@ -594,7 +594,7 @@ int main(int argc, char *argv[])
             NULL, tr("vkconfig detected - possible incompatibility"),
             tr("Configuration from 'vkconfig' tool detected.\n\n"
                "This program has caused problems in the past and it is \n"
-               "strongly recommended that you disable it while using RenderDoc.\n\n"
+               "strongly recommended that you disable it while using SanQi Capture.\n\n"
                "If this program is not active check the path below for any leftover files:\n\n%1")
                 .arg(fn));
 

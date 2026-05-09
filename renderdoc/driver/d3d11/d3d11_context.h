@@ -198,7 +198,7 @@ private:
     if(m_MarkedActive)
       return;
 
-    RenderDoc::Inst().AddActiveDriver(RDCDriver::D3D11, false);
+    SanQiCapture::Inst().AddActiveDriver(RDCDriver::D3D11, false);
   }
 
   bool m_DoStateVerify;

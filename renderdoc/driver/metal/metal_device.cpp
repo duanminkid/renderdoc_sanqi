@@ -37,7 +37,7 @@ WrappedMTLDevice::WrappedMTLDevice(MTL::Device *realMTLDevice, ResourceId objId)
   AllocateObjCBridge(this);
   m_Device = this;
 
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
   }
   else
@@ -51,7 +51,7 @@ WrappedMTLDevice::WrappedMTLDevice(MTL::Device *realMTLDevice, ResourceId objId)
 
   m_ResourceManager = new MetalResourceManager(m_State, this);
 
-  if(!RenderDoc::Inst().IsReplayApp())
+  if(!SanQiCapture::Inst().IsReplayApp())
   {
     m_FrameCaptureRecord = GetResourceManager()->AddResourceRecord(ResourceIDGen::GetNewUniqueID());
     m_FrameCaptureRecord->DataInSerialiser = false;
@@ -88,7 +88,7 @@ WrappedMTLDevice::WrappedMTLDevice(MTL::Device *realMTLDevice, ResourceId objId)
     // TODO: implement RD MTL replay
   }
 
-  RenderDoc::Inst().AddDeviceFrameCapturer(this, &m_Capturer);
+  SanQiCapture::Inst().AddDeviceFrameCapturer(this, &m_Capturer);
 
   m_mtlCommandQueue = Unwrap(this)->newCommandQueue();
   FirstFrame();

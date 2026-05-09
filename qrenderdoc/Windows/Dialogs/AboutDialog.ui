@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>About RenderDoc</string>
+   <string>About SanQi Capture</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <property name="sizeConstraint">
@@ -147,7 +147,7 @@
          </font>
         </property>
         <property name="text">
-         <string>RenderDoc</string>
+         <string>SanQi Capture</string>
         </property>
        </widget>
       </item>
@@ -237,9 +237,9 @@
         </font>
        </property>
        <property name="text">
-        <string>&lt;a href='mailto:baldurk@baldurk.org'&gt;baldurk@baldurk.org&lt;/a&gt;
+        <string>&lt;a href='mailto:support@sanqitech.internal'&gt;support@sanqitech.internal&lt;/a&gt;
 &amp;bull;
-&lt;a href='https://renderdoc.org/'&gt;https://renderdoc.org&lt;/a&gt;</string>
+&lt;a href='https://www.sanqitech.internal/'&gt;https://www.sanqitech.internal/</string>
        </property>
        <property name="textFormat">
         <enum>Qt::RichText</enum>

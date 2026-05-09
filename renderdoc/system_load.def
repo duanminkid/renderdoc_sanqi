@@ -1,0 +1,157 @@
+; system_load.def — Export definitions
+;
+; ARCHITECTURE:
+;   This DLL serves two contexts:
+;   1. Loaded by UI tool (qsanqiInjectTool.exe) — needs RENDERDOC_*/SL_* API exports
+;   2. Vulkan implicit layer — needs VK_LAYER_SANQIINJECTTOOL_* entry points
+;
+; STRATEGY:
+;   - D3D11 standard exports: needed for proxy mode compatibility
+;   - RENDERDOC_*/SL_* exports: needed by UI tool.
+;   - VK_LAYER_* exports: required by Vulkan loader for implicit layer activation.
+;     vk_layer.cpp defines VK_LAYER_EXPORT as extern "C" (no __declspec(dllexport))
+;     on Win32/x64, so we must export them explicitly via this DEF file.
+;   - CBTProc: SetWindowsHookEx callback for injection fallback
+
+LIBRARY d3d11
+
+EXPORTS
+    ; === D3D11 Standard Exports (matching real d3d11.dll) ===
+    D3D11CreateDevice                        = Proxy_D3D11CreateDevice                        @17
+    D3D11CreateDeviceAndSwapChain            = Proxy_D3D11CreateDeviceAndSwapChain            @18
+    D3D11CoreCreateDevice                    = Proxy_D3D11CoreCreateDevice                    @13
+    D3D11CoreCreateLayeredDevice             = Proxy_D3D11CoreCreateLayeredDevice              @14
+    D3D11CoreGetLayeredDeviceSize            = Proxy_D3D11CoreGetLayeredDeviceSize             @15
+    D3D11CoreRegisterLayers                  = Proxy_D3D11CoreRegisterLayers                   @16
+    D3D11On12CreateDevice                    = Proxy_D3D11On12CreateDevice                     @43
+    EnableFeatureLevelUpgrade                = Proxy_EnableFeatureLevelUpgrade
+
+    D3DKMTCloseAdapter                       = Proxy_D3DKMTCloseAdapter                       @1
+    D3DKMTCreateAllocation                   = Proxy_D3DKMTCreateAllocation                   @19
+    D3DKMTCreateContext                      = Proxy_D3DKMTCreateContext                      @20
+    D3DKMTCreateDevice                       = Proxy_D3DKMTCreateDevice                       @21
+    D3DKMTCreateSynchronizationObject        = Proxy_D3DKMTCreateSynchronizationObject        @22
+    D3DKMTDestroyAllocation                  = Proxy_D3DKMTDestroyAllocation                  @2
+    D3DKMTDestroyContext                     = Proxy_D3DKMTDestroyContext                     @3
+    D3DKMTDestroyDevice                      = Proxy_D3DKMTDestroyDevice                      @4
+    D3DKMTDestroySynchronizationObject       = Proxy_D3DKMTDestroySynchronizationObject       @5
+    D3DKMTEscape                             = Proxy_D3DKMTEscape                             @23
+    D3DKMTGetContextSchedulingPriority       = Proxy_D3DKMTGetContextSchedulingPriority       @24
+    D3DKMTGetDeviceState                     = Proxy_D3DKMTGetDeviceState                     @25
+    D3DKMTGetDisplayModeList                 = Proxy_D3DKMTGetDisplayModeList                 @26
+    D3DKMTGetMultisampleMethodList           = Proxy_D3DKMTGetMultisampleMethodList           @27
+    D3DKMTGetRuntimeData                     = Proxy_D3DKMTGetRuntimeData                    @28
+    D3DKMTGetSharedPrimaryHandle             = Proxy_D3DKMTGetSharedPrimaryHandle             @29
+    D3DKMTLock                               = Proxy_D3DKMTLock                               @30
+    D3DKMTOpenAdapterFromHdc                 = Proxy_D3DKMTOpenAdapterFromHdc                 @31
+    D3DKMTOpenResource                       = Proxy_D3DKMTOpenResource                       @32
+    D3DKMTPresent                            = Proxy_D3DKMTPresent                            @33
+    D3DKMTQueryAdapterInfo                   = Proxy_D3DKMTQueryAdapterInfo                   @6
+    D3DKMTQueryAllocationResidency           = Proxy_D3DKMTQueryAllocationResidency           @34
+    D3DKMTQueryResourceInfo                  = Proxy_D3DKMTQueryResourceInfo                  @35
+    D3DKMTRender                             = Proxy_D3DKMTRender                             @36
+    D3DKMTSetAllocationPriority              = Proxy_D3DKMTSetAllocationPriority              @37
+    D3DKMTSetContextSchedulingPriority       = Proxy_D3DKMTSetContextSchedulingPriority       @38
+    D3DKMTSetDisplayMode                     = Proxy_D3DKMTSetDisplayMode                     @39
+    D3DKMTSetDisplayPrivateDriverFormat      = Proxy_D3DKMTSetDisplayPrivateDriverFormat      @7
+    D3DKMTSetGammaRamp                       = Proxy_D3DKMTSetGammaRamp                      @40
+    D3DKMTSetVidPnSourceOwner                = Proxy_D3DKMTSetVidPnSourceOwner                @41
+    D3DKMTSignalSynchronizationObject        = Proxy_D3DKMTSignalSynchronizationObject        @8
+    D3DKMTUnlock                             = Proxy_D3DKMTUnlock                             @9
+    D3DKMTWaitForSynchronizationObject       = Proxy_D3DKMTWaitForSynchronizationObject       @10
+    D3DKMTWaitForVerticalBlankEvent          = Proxy_D3DKMTWaitForVerticalBlankEvent          @42
+
+    OpenAdapter10                            = Proxy_OpenAdapter10                            @11
+    OpenAdapter10_2                          = Proxy_OpenAdapter10_2                           @12
+
+    D3DPerformance_BeginEvent                = Proxy_D3DPerformance_BeginEvent
+    D3DPerformance_EndEvent                  = Proxy_D3DPerformance_EndEvent
+    D3DPerformance_GetStatus                 = Proxy_D3DPerformance_GetStatus
+    D3DPerformance_SetMarker                 = Proxy_D3DPerformance_SetMarker
+
+    CreateDirect3D11DeviceFromDXGIDevice     = Proxy_CreateDirect3D11DeviceFromDXGIDevice
+    CreateDirect3D11SurfaceFromDXGISurface   = Proxy_CreateDirect3D11SurfaceFromDXGISurface
+
+    ; === Hook injection entry point ===
+    CBTProc
+
+    ; === RenderDoc API exports (required by UI tool linkage) ===
+    ; The UI tool (qsanqiInjectTool.exe) imports these from system_load.dll.
+    ; These are the actual function implementations in entry_points.cpp / app_api.cpp.
+    RENDERDOC_AllocArrayMem
+    RENDERDOC_FreeArrayMem
+    RENDERDOC_RegisterMemoryRegion
+    RENDERDOC_UnregisterMemoryRegion
+    RENDERDOC_BecomeRemoteServer
+    RENDERDOC_CheckRemoteServerConnection
+    RENDERDOC_CreateRemoteServerConnection
+    RENDERDOC_CreateTargetControl
+    RENDERDOC_EnumerateRemoteTargets
+    RENDERDOC_BeginProfileRegion
+    RENDERDOC_EndProfileRegion
+    RENDERDOC_CanGlobalHook
+    RENDERDOC_CanSelfHostedCapture
+    RENDERDOC_ExecuteAndInject
+    RENDERDOC_InjectIntoProcess
+    RENDERDOC_IsGlobalHookActive
+    RENDERDOC_StartGlobalHook
+    RENDERDOC_StopGlobalHook
+    RENDERDOC_EndSelfHostCapture
+    RENDERDOC_StartSelfHostCapture
+    RENDERDOC_CreateBugReport
+    RENDERDOC_GetCurrentProcessMemoryUsage
+    RENDERDOC_RunFunctionalTests
+    RENDERDOC_RunUnitTests
+    RENDERDOC_GetDefaultCaptureOptions
+    RENDERDOC_GetConfigSetting
+    RENDERDOC_SaveConfigSettings
+    RENDERDOC_SetConfigSetting
+    RENDERDOC_SetDebugLogFile
+    RENDERDOC_GetDriverInformation
+    RENDERDOC_GetDeviceProtocolController
+    RENDERDOC_GetSupportedDeviceProtocols
+    RENDERDOC_GetCommitHash
+    RENDERDOC_GetVersionString
+    RENDERDOC_IsReleaseBuild
+    RENDERDOC_UpdateInstalledVersionNumber
+    RENDERDOC_InitialiseReplay
+    RENDERDOC_ShutdownReplay
+    RENDERDOC_OpenCaptureFile
+    RENDERDOC_GetLogFile
+    RENDERDOC_GetLogFileContents
+    RENDERDOC_LogMessage
+    RENDERDOC_FloatToHalf
+    RENDERDOC_HalfToFloat
+    RENDERDOC_InitCamera
+    RENDERDOC_NumVerticesPerPrimitive
+    RENDERDOC_ResourceFormatName
+    RENDERDOC_SetColors
+    RENDERDOC_VertexOffset
+    RENDERDOC_CheckAndroidPackage
+    RENDERDOC_NeedVulkanLayerRegistration
+    RENDERDOC_UpdateVulkanLayerRegistration
+
+    ; === Internal exports (used by injection flow in win32_process.cpp) ===
+    INTERNAL_SetCaptureFile
+    INTERNAL_SetDebugLogFile
+    INTERNAL_SetCaptureOptions
+    INTERNAL_GetTargetControlIdent
+    INTERNAL_ApplyEnvMods
+    INTERNAL_EnvMod
+    INTERNAL_EnvModName
+    INTERNAL_EnvModValue
+    INTERNAL_EnvSep
+
+    ; === SL_* aliases (for sl_api_compat.h linker redirection) ===
+    SL_GetAPI
+
+    ; === Vulkan Implicit Layer entry points ===
+    ; vk_layer.cpp uses VK_LAYER_EXPORT = extern "C" on Win32 (no dllexport),
+    ; so the Vulkan loader cannot find them without explicit DEF exports.
+    ; These are required for the Vulkan loader to activate system_load.dll as a layer.
+    VK_LAYER_SANQIINJECTTOOL_CaptureEnumerateDeviceLayerProperties
+    VK_LAYER_SANQIINJECTTOOL_CaptureEnumerateDeviceExtensionProperties
+    VK_LAYER_SANQIINJECTTOOL_CaptureEnumerateInstanceExtensionProperties
+    VK_LAYER_SANQIINJECTTOOL_CaptureGetDeviceProcAddr
+    VK_LAYER_SANQIINJECTTOOL_CaptureGetInstanceProcAddr
+    VK_LAYER_SANQIINJECTTOOL_CaptureNegotiateLoaderLayerInterfaceVersion

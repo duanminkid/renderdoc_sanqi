@@ -157,7 +157,7 @@ static void EnsureRealLibraryLoaded()
 #if ENABLED(RDOC_LINUX)
   if(eglhook.handle == DEFAULT_HANDLE)
   {
-    if(!RenderDoc::Inst().IsReplayApp())
+    if(!SanQiCapture::Inst().IsReplayApp())
       RDCLOG("Loading libEGL at the last second");
 
     void *handle = Process::LoadModule("libEGL.so.1");
@@ -165,7 +165,7 @@ static void EnsureRealLibraryLoaded()
     if(!handle)
       handle = Process::LoadModule("libEGL.so");
 
-    if(RenderDoc::Inst().IsReplayApp())
+    if(SanQiCapture::Inst().IsReplayApp())
       eglhook.handle = handle;
   }
 #endif
@@ -173,7 +173,7 @@ static void EnsureRealLibraryLoaded()
 
 HOOK_EXPORT EGLDisplay EGLAPIENTRY eglGetDisplay_renderdoc_hooked(EGLNativeDisplayType display)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.GetDisplay)
       EGL.PopulateForReplay();
@@ -204,7 +204,7 @@ HOOK_EXPORT EGLDisplay EGLAPIENTRY eglGetPlatformDisplay_renderdoc_hooked(EGLenu
                                                                           void *native_display,
                                                                           const EGLAttrib *attrib_list)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.GetDisplay)
       EGL.PopulateForReplay();
@@ -228,7 +228,7 @@ HOOK_EXPORT EGLDisplay EGLAPIENTRY eglGetPlatformDisplay_renderdoc_hooked(EGLenu
 
 HOOK_EXPORT EGLBoolean EGLAPIENTRY eglBindAPI_renderdoc_hooked(EGLenum api)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.GetDisplay)
       EGL.PopulateForReplay();
@@ -251,7 +251,7 @@ HOOK_EXPORT EGLContext EGLAPIENTRY eglCreateContext_renderdoc_hooked(EGLDisplay 
                                                                      EGLContext shareContext,
                                                                      EGLint const *attribList)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.CreateContext)
       EGL.PopulateForReplay();
@@ -286,7 +286,7 @@ HOOK_EXPORT EGLContext EGLAPIENTRY eglCreateContext_renderdoc_hooked(EGLDisplay 
 
         if(name == EGL_CONTEXT_FLAGS_KHR)
         {
-          if(RenderDoc::Inst().GetCaptureOptions().apiValidation)
+          if(SanQiCapture::Inst().GetCaptureOptions().apiValidation)
             value |= EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR;
           else
             value &= ~EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR;
@@ -315,7 +315,7 @@ HOOK_EXPORT EGLContext EGLAPIENTRY eglCreateContext_renderdoc_hooked(EGLDisplay 
       }
     }
 
-    if(!flagsFound && RenderDoc::Inst().GetCaptureOptions().apiValidation)
+    if(!flagsFound && SanQiCapture::Inst().GetCaptureOptions().apiValidation)
     {
       attribs.push_back(EGL_CONTEXT_FLAGS_KHR);
       attribs.push_back(EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR);
@@ -386,7 +386,7 @@ HOOK_EXPORT EGLContext EGLAPIENTRY eglCreateContext_renderdoc_hooked(EGLDisplay 
 
 HOOK_EXPORT EGLBoolean EGLAPIENTRY eglDestroyContext_renderdoc_hooked(EGLDisplay dpy, EGLContext ctx)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.DestroyContext)
       EGL.PopulateForReplay();
@@ -411,7 +411,7 @@ HOOK_EXPORT EGLSurface EGLAPIENTRY eglCreateWindowSurface_renderdoc_hooked(EGLDi
                                                                            EGLNativeWindowType win,
                                                                            const EGLint *attrib_list)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.CreateWindowSurface)
       EGL.PopulateForReplay();
@@ -438,7 +438,7 @@ HOOK_EXPORT EGLSurface EGLAPIENTRY eglCreateWindowSurface_renderdoc_hooked(EGLDi
 HOOK_EXPORT EGLSurface EGLAPIENTRY eglCreatePlatformWindowSurface_renderdoc_hooked(
     EGLDisplay dpy, EGLConfig config, void *native_window, const EGLAttrib *attrib_list)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.CreatePlatformWindowSurface)
       EGL.PopulateForReplay();
@@ -465,7 +465,7 @@ HOOK_EXPORT EGLBoolean EGLAPIENTRY eglMakeCurrent_renderdoc_hooked(EGLDisplay di
                                                                    EGLSurface draw, EGLSurface read,
                                                                    EGLContext ctx)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.MakeCurrent || !EGL.GetProcAddress)
       EGL.PopulateForReplay();
@@ -534,7 +534,7 @@ HOOK_EXPORT EGLBoolean EGLAPIENTRY eglMakeCurrent_renderdoc_hooked(EGLDisplay di
 
 HOOK_EXPORT EGLBoolean EGLAPIENTRY eglSwapBuffers_renderdoc_hooked(EGLDisplay dpy, EGLSurface surface)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.SwapBuffers)
       EGL.PopulateForReplay();
@@ -576,7 +576,7 @@ HOOK_EXPORT EGLBoolean EGLAPIENTRY eglSwapBuffers_renderdoc_hooked(EGLDisplay dp
 
 HOOK_EXPORT const char *EGLAPIENTRY eglQueryString_renderdoc_hooked(EGLDisplay dpy, EGLint name)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.QueryString)
       EGL.PopulateForReplay();
@@ -618,7 +618,7 @@ HOOK_EXPORT EGLBoolean EGLAPIENTRY eglPostSubBufferNV_renderdoc_hooked(EGLDispla
                                                                        EGLint y, EGLint width,
                                                                        EGLint height)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.PostSubBufferNV)
       EGL.PopulateForReplay();
@@ -653,7 +653,7 @@ HOOK_EXPORT EGLBoolean EGLAPIENTRY eglSwapBuffersWithDamageEXT_renderdoc_hooked(
                                                                                 EGLint *rects,
                                                                                 EGLint n_rects)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.SwapBuffersWithDamageEXT)
       EGL.PopulateForReplay();
@@ -688,7 +688,7 @@ HOOK_EXPORT EGLBoolean EGLAPIENTRY eglSwapBuffersWithDamageKHR_renderdoc_hooked(
                                                                                 EGLint *rects,
                                                                                 EGLint n_rects)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.SwapBuffersWithDamageKHR)
       EGL.PopulateForReplay();
@@ -721,7 +721,7 @@ HOOK_EXPORT EGLBoolean EGLAPIENTRY eglSwapBuffersWithDamageKHR_renderdoc_hooked(
 HOOK_EXPORT __eglMustCastToProperFunctionPointerType EGLAPIENTRY
 eglGetProcAddress_renderdoc_hooked(const char *func)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!EGL.GetProcAddress)
       EGL.PopulateForReplay();
@@ -983,7 +983,7 @@ static void EGLHooked(void *handle, const char *libName)
   eglhook.handle = handle;
 
   // as a hook callback this is only called while capturing
-  RDCASSERT(!RenderDoc::Inst().IsReplayApp());
+  RDCASSERT(!SanQiCapture::Inst().IsReplayApp());
 
 // fetch non-hooked functions into our dispatch table
 #define EGL_FETCH(func, isext, replayrequired)                                                  \
@@ -1136,7 +1136,7 @@ HOOK_EXPORT void AndroidGLESLayer_Initialize(void *layer_id,
   RDCLOG("Initialising Android GLES layer with ID %p", layer_id);
 
   // as a hook callback this is only called while capturing
-  RDCASSERT(!RenderDoc::Inst().IsReplayApp());
+  RDCASSERT(!SanQiCapture::Inst().IsReplayApp());
 
 // populate EGL dispatch table with the next layer's function pointers. Fetch all 'hooked' and
 // non-hooked functions

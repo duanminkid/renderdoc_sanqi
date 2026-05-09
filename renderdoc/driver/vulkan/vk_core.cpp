@@ -162,9 +162,9 @@ uint64_t DescriptorTrieNode::rangeToleranceMask = ~0ULL;
 
 WrappedVulkan::WrappedVulkan()
 {
-  RenderDoc::Inst().RegisterMemoryRegion(this, sizeof(WrappedVulkan));
+  SanQiCapture::Inst().RegisterMemoryRegion(this, sizeof(WrappedVulkan));
 
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(VkMarkerRegion::vk == NULL)
       VkMarkerRegion::vk = this;
@@ -181,7 +181,7 @@ WrappedVulkan::WrappedVulkan()
   m_SectionVersion = VkInitParams::CurrentVersion;
 
   rdcspv::Init();
-  RenderDoc::Inst().RegisterShutdownFunction(&rdcspv::Shutdown);
+  SanQiCapture::Inst().RegisterShutdownFunction(&rdcspv::Shutdown);
 
   m_Replay = new VulkanReplay(this);
 
@@ -216,7 +216,7 @@ WrappedVulkan::WrappedVulkan()
   m_QueueFamilyIdx = 0;
   m_DbgReportCallback = VK_NULL_HANDLE;
 
-  if(!RenderDoc::Inst().IsReplayApp())
+  if(!SanQiCapture::Inst().IsReplayApp())
   {
     m_FrameCaptureRecord = GetResourceManager()->AddResourceRecord(ResourceIDGen::GetNewUniqueID());
     m_FrameCaptureRecord->DataInSerialiser = false;
@@ -296,12 +296,12 @@ VkCommandBuffer WrappedVulkan::GetInitStateCmd()
 
     if(IsReplayMode(m_State))
     {
-      VkMarkerRegion::Begin("!!!!RenderDoc Internal: ApplyInitialContents batched list",
+      VkMarkerRegion::Begin("!!!!SanQi Capture Internal: ApplyInitialContents batched list",
                             initStateCurCmd);
     }
     else
     {
-      VkMarkerRegion::Begin("!!!!RenderDoc Internal: PrepareInitialContents batched list",
+      VkMarkerRegion::Begin("!!!!SanQi Capture Internal: PrepareInitialContents batched list",
                             initStateCurCmd);
     }
   }
@@ -912,7 +912,7 @@ WriteSerialiser &WrappedVulkan::GetThreadSerialiser()
   uint32_t flags = WriteSerialiser::ChunkDuration | WriteSerialiser::ChunkTimestamp |
                    WriteSerialiser::ChunkThreadID;
 
-  if(RenderDoc::Inst().GetCaptureOptions().captureCallstacks)
+  if(SanQiCapture::Inst().GetCaptureOptions().captureCallstacks)
     flags |= WriteSerialiser::ChunkCallstack;
 
   ser->SetChunkMetadataRecording(flags);
@@ -2576,9 +2576,9 @@ void WrappedVulkan::EndCaptureFrame(VkImage presentImage)
 void WrappedVulkan::FirstFrame()
 {
   // if we have to capture the first frame, begin capturing immediately
-  if(IsBackgroundCapturing(m_State) && RenderDoc::Inst().ShouldTriggerCapture(0))
+  if(IsBackgroundCapturing(m_State) && SanQiCapture::Inst().ShouldTriggerCapture(0))
   {
-    RenderDoc::Inst().StartFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    SanQiCapture::Inst().StartFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
 
     m_FirstFrameCapture = true;
 
@@ -2879,7 +2879,7 @@ bool WrappedVulkan::EndFrameCapture(DeviceOwnedWindow devWnd)
 
   // gather backbuffer screenshot
   const uint32_t maxSize = 2048;
-  RenderDoc::FramePixels fp;
+  SanQiCapture::FramePixels fp;
 
   if(backbuffer != VK_NULL_HANDLE)
   {
@@ -3071,7 +3071,7 @@ bool WrappedVulkan::EndFrameCapture(DeviceOwnedWindow devWnd)
   }
 
   RDCFile *rdc =
-      RenderDoc::Inst().CreateRDC(RDCDriver::Vulkan, m_CapturedFrames.back().frameNumber, fp);
+      SanQiCapture::Inst().CreateRDC(RDCDriver::Vulkan, m_CapturedFrames.back().frameNumber, fp);
 
   StreamWriter *captureWriter = NULL;
 
@@ -3177,7 +3177,7 @@ bool WrappedVulkan::EndFrameCapture(DeviceOwnedWindow devWnd)
 
       for(auto it = recordlist.begin(); it != recordlist.end(); ++it)
       {
-        RenderDoc::Inst().SetProgress(CaptureProgress::SerialiseFrameContents, idx / num);
+        SanQiCapture::Inst().SetProgress(CaptureProgress::SerialiseFrameContents, idx / num);
         idx += 1.0f;
         it->second->Write(ser);
       }
@@ -3203,7 +3203,7 @@ bool WrappedVulkan::EndFrameCapture(DeviceOwnedWindow devWnd)
 
   m_CaptureFailure = false;
 
-  RenderDoc::Inst().FinishCaptureWriting(rdc, m_CapturedFrames.back().frameNumber);
+  SanQiCapture::Inst().FinishCaptureWriting(rdc, m_CapturedFrames.back().frameNumber);
 
   m_State = CaptureState::BackgroundCapturing;
 
@@ -3242,7 +3242,7 @@ bool WrappedVulkan::DiscardFrameCapture(DeviceOwnedWindow devWnd)
 
   RDCLOG("Discarding frame capture.");
 
-  RenderDoc::Inst().FinishCaptureWriting(NULL, m_CapturedFrames.back().frameNumber);
+  SanQiCapture::Inst().FinishCaptureWriting(NULL, m_CapturedFrames.back().frameNumber);
 
   m_CapturedFrames.pop_back();
 
@@ -3317,23 +3317,23 @@ bool WrappedVulkan::DiscardFrameCapture(DeviceOwnedWindow devWnd)
 void WrappedVulkan::AdvanceFrame()
 {
   if(IsBackgroundCapturing(m_State))
-    RenderDoc::Inst().Tick();
+    SanQiCapture::Inst().Tick();
 
   m_FrameCounter++;    // first present becomes frame #1, this function is at the end of the frame
 }
 
 void WrappedVulkan::Present(DeviceOwnedWindow devWnd)
 {
-  bool activeWindow = devWnd.windowHandle == NULL || RenderDoc::Inst().IsActiveWindow(devWnd);
+  bool activeWindow = devWnd.windowHandle == NULL || SanQiCapture::Inst().IsActiveWindow(devWnd);
 
-  RenderDoc::Inst().AddActiveDriver(RDCDriver::Vulkan, true);
+  SanQiCapture::Inst().AddActiveDriver(RDCDriver::Vulkan, true);
 
   if(!activeWindow)
   {
     // first present to *any* window, even inactive, terminates frame 0
     if(m_FirstFrameCapture && IsActiveCapturing(m_State))
     {
-      RenderDoc::Inst().EndFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+      SanQiCapture::Inst().EndFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
       m_FirstFrameCapture = false;
     }
 
@@ -3341,11 +3341,11 @@ void WrappedVulkan::Present(DeviceOwnedWindow devWnd)
   }
 
   if(IsActiveCapturing(m_State) && !m_AppControlledCapture)
-    RenderDoc::Inst().EndFrameCapture(devWnd);
+    SanQiCapture::Inst().EndFrameCapture(devWnd);
 
-  if(RenderDoc::Inst().ShouldTriggerCapture(m_FrameCounter) && IsBackgroundCapturing(m_State))
+  if(SanQiCapture::Inst().ShouldTriggerCapture(m_FrameCounter) && IsBackgroundCapturing(m_State))
   {
-    RenderDoc::Inst().StartFrameCapture(devWnd);
+    SanQiCapture::Inst().StartFrameCapture(devWnd);
 
     m_AppControlledCapture = false;
     m_CapturedFrames.back().frameNumber = m_FrameCounter;
@@ -3381,11 +3381,11 @@ void WrappedVulkan::HandleFrameMarkers(const char *marker, VkQueue queue)
 
   if(strstr(marker, "capture-marker,begin_capture") != NULL)
   {
-    RenderDoc::Inst().StartFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    SanQiCapture::Inst().StartFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
   }
   if(strstr(marker, "capture-marker,end_capture") != NULL)
   {
-    RenderDoc::Inst().EndFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    SanQiCapture::Inst().EndFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
   }
 }
 
@@ -3557,7 +3557,7 @@ RDResult WrappedVulkan::ReadLogInitialisation(RDCFile *rdc, bool storeStructured
     // backwards.
     if(m_DebugManager || IsStructuredExporting(m_State))
     {
-      RenderDoc::Inst().SetProgress(LoadProgress::FileInitialRead,
+      SanQiCapture::Inst().SetProgress(LoadProgress::FileInitialRead,
                                     float(offsetEnd) / float(reader->GetSize()));
     }
 
@@ -3930,7 +3930,7 @@ RDResult WrappedVulkan::ContextReplayLog(CaptureState readType, uint32_t startEv
     if(m_FatalError != ResultCode::Succeeded)
       return m_FatalError;
 
-    RenderDoc::Inst().SetProgress(
+    SanQiCapture::Inst().SetProgress(
         LoadProgress::FrameEventsRead,
         float(m_CurChunkOffset - startOffset) / float(ser.GetReader()->GetSize()));
 
@@ -4921,7 +4921,7 @@ VkResourceRecord *WrappedVulkan::RegisterSurface(WindowingSystem system, void *h
 
   RDCLOG("RegisterSurface() window %p", handle);
 
-  RenderDoc::Inst().AddFrameCapturer(DeviceOwnedWindow(LayerDisp(m_Instance), handle), this);
+  SanQiCapture::Inst().AddFrameCapturer(DeviceOwnedWindow(LayerDisp(m_Instance), handle), this);
 
   return (VkResourceRecord *)new PackedWindowHandle(system, handle);
 }
@@ -4938,14 +4938,14 @@ void WrappedVulkan::ReplayLog(uint32_t startEventID, uint32_t endEventID, Replay
 
   if(!partial)
   {
-    VkMarkerRegion::Begin("!!!!RenderDoc Internal: ApplyInitialContents");
+    VkMarkerRegion::Begin("!!!!SanQi Capture Internal: ApplyInitialContents");
     ApplyInitialContents();
     VkMarkerRegion::End();
   }
 
   m_State = CaptureState::ActiveReplaying;
 
-  VkMarkerRegion::Set(StringFormat::Fmt("!!!!RenderDoc Internal: RenderDoc Replay %d (%d): %u->%u",
+  VkMarkerRegion::Set(StringFormat::Fmt("!!!!SanQi Capture Internal: SanQi Capture Replay %d (%d): %u->%u",
                                         (int)replayType, (int)partial, startEventID, endEventID));
 
   {
@@ -5134,7 +5134,7 @@ void WrappedVulkan::ReplayLog(uint32_t startEventID, uint32_t endEventID, Replay
     });
   }
 
-  VkMarkerRegion::Set("!!!!RenderDoc Internal: Done replay");
+  VkMarkerRegion::Set("!!!!SanQi Capture Internal: Done replay");
 }
 
 template <typename SerialiserType>
@@ -5320,7 +5320,7 @@ rdcstr WrappedVulkan::GetPhysDeviceCompatString(bool externalResource, bool orig
   {
     return StringFormat::Fmt(
         "This was invalid at capture time.\n"
-        "You must use API validation, as RenderDoc does not handle invalid API use like this.\n\n"
+        "You must use API validation, as SanQi Capture does not handle invalid API use like this.\n\n"
         "Captured on device: %s %s, %u.%u.%u",
         ToStr(capture.Vendor()).c_str(), m_OrigPhysicalDeviceData.props.deviceName, capture.Major(),
         capture.Minor(), capture.Patch());

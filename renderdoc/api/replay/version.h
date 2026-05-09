@@ -28,7 +28,7 @@
 //
 // Build configuration variables.
 //
-// When distributing RenderDoc builds please check these variables before building and
+// When distributing SanQi Capture builds please check these variables before building and
 // set them appropriately. If you're building locally, the defaults are all fine.
 //
 // For windows builds, some of these variables are irrelevant and can be ignored.

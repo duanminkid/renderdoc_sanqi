@@ -67,7 +67,7 @@ static void EnsureRealLibraryLoaded()
 {
   if(glxhook.handle == RTLD_NEXT)
   {
-    if(!RenderDoc::Inst().IsReplayApp())
+    if(!SanQiCapture::Inst().IsReplayApp())
       RDCLOG("Loading libGL at the last second");
 
     void *handle = Process::LoadModule("libGL.so.1");
@@ -76,7 +76,7 @@ static void EnsureRealLibraryLoaded()
     if(!handle)
       handle = Process::LoadModule("libGLX.so.0");
 
-    if(RenderDoc::Inst().IsReplayApp())
+    if(SanQiCapture::Inst().IsReplayApp())
       glxhook.handle = handle;
   }
 }
@@ -84,7 +84,7 @@ static void EnsureRealLibraryLoaded()
 HOOK_EXPORT GLXContext glXCreateContext_renderdoc_hooked(Display *dpy, XVisualInfo *vis,
                                                          GLXContext shareList, Bool direct)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!GLX.glXCreateContext)
       GLX.PopulateForReplay();
@@ -142,7 +142,7 @@ HOOK_EXPORT GLXContext glXCreateNewContext_renderdoc_hooked(Display *dpy, GLXFBC
                                                             int renderType, GLXContext shareList,
                                                             Bool direct)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!GLX.glXCreateNewContext)
       GLX.PopulateForReplay();
@@ -202,7 +202,7 @@ HOOK_EXPORT GLXContext glXCreateNewContext_renderdoc_hooked(Display *dpy, GLXFBC
 
 HOOK_EXPORT void glXDestroyContext_renderdoc_hooked(Display *dpy, GLXContext ctx)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!GLX.glXDestroyContext)
       GLX.PopulateForReplay();
@@ -225,7 +225,7 @@ HOOK_EXPORT GLXContext glXCreateContextAttribsARB_renderdoc_hooked(Display *dpy,
                                                                    GLXContext shareList, Bool direct,
                                                                    const int *attribList)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!GLX.glXCreateContextAttribsARB)
       GLX.PopulateForReplay();
@@ -251,7 +251,7 @@ HOOK_EXPORT GLXContext glXCreateContextAttribsARB_renderdoc_hooked(Display *dpy,
 
       if(name == GLX_CONTEXT_FLAGS_ARB)
       {
-        if(RenderDoc::Inst().GetCaptureOptions().apiValidation)
+        if(SanQiCapture::Inst().GetCaptureOptions().apiValidation)
           val |= GLX_CONTEXT_DEBUG_BIT_ARB;
         else
           val &= ~GLX_CONTEXT_DEBUG_BIT_ARB;
@@ -266,7 +266,7 @@ HOOK_EXPORT GLXContext glXCreateContextAttribsARB_renderdoc_hooked(Display *dpy,
       attribVec.push_back(val);
     }
 
-    if(!flagsFound && RenderDoc::Inst().GetCaptureOptions().apiValidation)
+    if(!flagsFound && SanQiCapture::Inst().GetCaptureOptions().apiValidation)
     {
       attribVec.push_back(GLX_CONTEXT_FLAGS_ARB);
       attribVec.push_back(GLX_CONTEXT_DEBUG_BIT_ARB);
@@ -351,7 +351,7 @@ HOOK_EXPORT GLXContext glXCreateContextAttribsARB_renderdoc_hooked(Display *dpy,
 
 HOOK_EXPORT Bool glXMakeCurrent_renderdoc_hooked(Display *dpy, GLXDrawable drawable, GLXContext ctx)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!GLX.glXMakeCurrent || !GLX.glXGetProcAddress)
       GLX.PopulateForReplay();
@@ -431,7 +431,7 @@ HOOK_EXPORT Bool glXMakeCurrent_renderdoc_hooked(Display *dpy, GLXDrawable drawa
 HOOK_EXPORT Bool glXMakeContextCurrent_renderdoc_hooked(Display *dpy, GLXDrawable draw,
                                                         GLXDrawable read, GLXContext ctx)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!GLX.glXMakeContextCurrent || !GLX.glXGetProcAddress)
       GLX.PopulateForReplay();
@@ -509,7 +509,7 @@ HOOK_EXPORT Bool glXMakeContextCurrent_renderdoc_hooked(Display *dpy, GLXDrawabl
 
 HOOK_EXPORT void glXSwapBuffers_renderdoc_hooked(Display *dpy, GLXDrawable drawable)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!GLX.glXSwapBuffers)
       GLX.PopulateForReplay();
@@ -540,7 +540,7 @@ HOOK_EXPORT void glXSwapBuffers_renderdoc_hooked(Display *dpy, GLXDrawable drawa
 
 HOOK_EXPORT __GLXextFuncPtr glXGetProcAddress_renderdoc_hooked(const GLubyte *f)
 {
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     if(!GLX.glXGetProcAddress)
       GLX.PopulateForReplay();
@@ -767,7 +767,7 @@ static void GLXHooked(void *handle, const char *)
   glxhook.handle = handle;
 
   // as a hook callback this is only called while capturing
-  RDCASSERT(!RenderDoc::Inst().IsReplayApp());
+  RDCASSERT(!SanQiCapture::Inst().IsReplayApp());
 
 // fetch non-hooked functions into our dispatch table
 #define GLX_FETCH(func) \

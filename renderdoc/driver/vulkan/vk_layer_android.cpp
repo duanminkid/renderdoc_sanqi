@@ -25,7 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// RenderDoc Includes
+// SanQi Capture Includes
 
 #include "vk_common.h"
 #include "vk_core.h"
@@ -46,14 +46,14 @@
 extern "C" {
 
 // these are in vk_layer.cpp
-VK_LAYER_EXPORT VkResult VKAPI_CALL VK_LAYER_RENDERDOC_CaptureEnumerateDeviceLayerProperties(
+VK_LAYER_EXPORT VkResult VKAPI_CALL VK_LAYER_MICROSOFT_SystemLoadEnumerateDeviceLayerProperties(
     VkPhysicalDevice physicalDevice, uint32_t *pPropertyCount, VkLayerProperties *pProperties);
 
-VK_LAYER_EXPORT VkResult VKAPI_CALL VK_LAYER_RENDERDOC_CaptureEnumerateDeviceExtensionProperties(
+VK_LAYER_EXPORT VkResult VKAPI_CALL VK_LAYER_MICROSOFT_SystemLoadEnumerateDeviceExtensionProperties(
     VkPhysicalDevice physicalDevice, const char *pLayerName, uint32_t *pPropertyCount,
     VkExtensionProperties *pProperties);
 
-VK_LAYER_EXPORT VkResult VKAPI_CALL VK_LAYER_RENDERDOC_CaptureEnumerateInstanceExtensionProperties(
+VK_LAYER_EXPORT VkResult VKAPI_CALL VK_LAYER_MICROSOFT_SystemLoadEnumerateInstanceExtensionProperties(
     const VkEnumerateInstanceExtensionPropertiesChain *pChain, const char *pLayerName,
     uint32_t *pPropertyCount, VkExtensionProperties *pProperties);
 
@@ -61,7 +61,7 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL vkEnumerateDeviceLayerProperties(VkPhysicalD
                                                                      uint32_t *pPropertyCount,
                                                                      VkLayerProperties *pProperties)
 {
-  return VK_LAYER_RENDERDOC_CaptureEnumerateDeviceLayerProperties(physicalDevice, pPropertyCount,
+  return VK_LAYER_MICROSOFT_SystemLoadEnumerateDeviceLayerProperties(physicalDevice, pPropertyCount,
                                                                   pProperties);
 }
 
@@ -69,23 +69,23 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL
 vkEnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice, const char *pLayerName,
                                      uint32_t *pPropertyCount, VkExtensionProperties *pProperties)
 {
-  return VK_LAYER_RENDERDOC_CaptureEnumerateDeviceExtensionProperties(physicalDevice, pLayerName,
+  return VK_LAYER_MICROSOFT_SystemLoadEnumerateDeviceExtensionProperties(physicalDevice, pLayerName,
                                                                       pPropertyCount, pProperties);
 }
 
 VK_LAYER_EXPORT VkResult VKAPI_CALL vkEnumerateInstanceLayerProperties(uint32_t *pPropertyCount,
                                                                        VkLayerProperties *pProperties)
 {
-  // VK_LAYER_RENDERDOC_CaptureEnumerateDeviceLayerProperties ignores the physicalDevice parameter
+  // VK_LAYER_MICROSOFT_SystemLoadEnumerateDeviceLayerProperties ignores the physicalDevice parameter
   // since the layer properties are static
-  return VK_LAYER_RENDERDOC_CaptureEnumerateDeviceLayerProperties(VK_NULL_HANDLE, pPropertyCount,
+  return VK_LAYER_MICROSOFT_SystemLoadEnumerateDeviceLayerProperties(VK_NULL_HANDLE, pPropertyCount,
                                                                   pProperties);
 }
 
 VK_LAYER_EXPORT VkResult VKAPI_CALL vkEnumerateInstanceExtensionProperties(
     const char *pLayerName, uint32_t *pPropertyCount, VkExtensionProperties *pProperties)
 {
-  return VK_LAYER_RENDERDOC_CaptureEnumerateInstanceExtensionProperties(
+  return VK_LAYER_MICROSOFT_SystemLoadEnumerateInstanceExtensionProperties(
       NULL, pLayerName, pPropertyCount, pProperties);
 }
 }

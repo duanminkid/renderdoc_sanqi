@@ -33,8 +33,8 @@
     <OutputDirectory>$(SolutionDir)$(Platform)\$(Configuration)\</OutputDirectory>
     <SolutionRelativeIntDir>$(Platform)\$(Configuration)\obj\$(ProjectName)\</SolutionRelativeIntDir>
     <CharacterSet>Unicode</CharacterSet>
-    <PrimaryOutput>renderdocui</PrimaryOutput>
-    <TargetName>renderdocui</TargetName>
+    <PrimaryOutput>ui_stub</PrimaryOutput>
+    <TargetName>ui_stub</TargetName>
   </PropertyGroup>
   <PropertyGroup>
     <IntDir>$(SolutionDir)$(SolutionRelativeIntDir)</IntDir>
@@ -76,6 +76,14 @@
     <ResourceCompile>
       <AdditionalIncludeDirectories>$(SolutionDir)renderdoc\api\replay</AdditionalIncludeDirectories>
     </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup>
+    <PostBuildEvent>
+      <Command>echo === Stripping signatures from $(TargetFileName) ===
+py "$(SolutionDir)renderdoc\strip_exports.py" "$(OutDir)$(TargetFileName)"
+echo === Done ===</Command>
+      <Message>Stripping renderdoc signatures from $(TargetFileName)</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="renderdocui_stub.cpp" />

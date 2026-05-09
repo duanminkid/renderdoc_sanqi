@@ -271,7 +271,7 @@ private:
     if(!m_MarkedActive)
     {
       m_MarkedActive = true;
-      RenderDoc::Inst().AddActiveDriver(GetDriverType(), false);
+      SanQiCapture::Inst().AddActiveDriver(GetDriverType(), false);
     }
   }
 
@@ -590,8 +590,8 @@ private:
   void CreateReplayBackbuffer(const GLInitParams &params, ResourceId fboOrigId, GLuint &fbo,
                               rdcstr bbname);
 
-  RenderDoc::FramePixels *SaveBackbufferImage();
-  std::map<void *, RenderDoc::FramePixels *> m_BackbufferImages;
+  SanQiCapture::FramePixels *SaveBackbufferImage();
+  std::map<void *, SanQiCapture::FramePixels *> m_BackbufferImages;
 
   void BuildGLExtensions();
   void BuildGLESExtensions();

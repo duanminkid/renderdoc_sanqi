@@ -177,7 +177,7 @@ static bool ptrace_scope_ok()
     int ptrace_scope = atoi(contents.c_str());
     if(ptrace_scope > 1)
     {
-      if(RenderDoc::Inst().IsReplayApp())
+      if(SanQiCapture::Inst().IsReplayApp())
       {
         static bool warned = false;
         if(!warned)
@@ -741,7 +741,7 @@ void CacheDebuggerPresent()
           if(tracermaps.contains("r-x"))
           {
             // if the tracer has librenderdoc.so loaded for execute assume that we're detecting
-            // RenderDoc's ptrace usage. Don't treat it as a debugger but don't cache this result,
+            // SanQi Capture's ptrace usage. Don't treat it as a debugger but don't cache this result,
             // we'll check again soon and hopefully get a better result
             debuggerPresent = false;
             debuggerCached = false;
@@ -756,7 +756,7 @@ void CacheDebuggerPresent()
         }
         else
         {
-          // can't read the tracer maps entry? Maybe a privilege issue, assume this isn't RenderDoc
+          // can't read the tracer maps entry? Maybe a privilege issue, assume this isn't SanQi Capture
           // and cache it as a debugger
           RDCWARN("Couldn't read /proc/%d/maps entry for tracer, assuming valid debugger", tracerpid);
           debuggerPresent = true;

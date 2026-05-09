@@ -245,7 +245,7 @@ void NVCounterEnumerator::Impl::InitEnumerateCounters()
       {
         //-----------------
         // Filter out metrics that count "cycles".
-        // The RenderDoc replay loop is not designed for reproducing representative cycle counts.
+        // The SanQi Capture replay loop is not designed for reproducing representative cycle counts.
         auto itr =
             std::find_if(dimUnits.begin(), dimUnits.end(), [](const NVPW_DimUnitFactor &factor) {
               switch(factor.dimUnit)

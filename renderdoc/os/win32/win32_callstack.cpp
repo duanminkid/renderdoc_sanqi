@@ -98,7 +98,7 @@ rdcwstr GetSymSearchPath()
   if(len == 0 && GetLastError() == ERROR_ENVVAR_NOT_FOUND)
   {
     // set up a default sympath to look up MS's symbol servers and cache them locally in
-    // RenderDoc's appdata folder.
+    // SanQi Capture's appdata folder.
     PWSTR appDataPath;
     SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_SIMPLE_IDLIST | KF_FLAG_DONT_UNEXPAND,
                          NULL, &appDataPath);
@@ -107,9 +107,9 @@ rdcwstr GetSymSearchPath()
 
     sympath = L".;";
     sympath += appdata.c_str();
-    sympath += L"\\renderdoc\\symbols;SRV*";
+    sympath += L"\\sanqi\\symbols;SRV*";
     sympath += appdata.c_str();
-    sympath += L"\\renderdoc\\symbols\\symsrv*http://msdl.microsoft.com/download/symbols";
+    sympath += L"\\sanqi\\symbols\\symsrv*http://msdl.microsoft.com/download/symbols";
 
     return sympath.c_str();
   }
@@ -562,7 +562,7 @@ static bool InitDbgHelp()
     }
   }
 
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     DIA2::Init();
   }
@@ -760,7 +760,7 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
     for(;;)
     {
       DWORD read =
-          GetPrivateProfileStringW(L"renderdoc", L"ignores", NULL, inputBuf, sz, configPath.c_str());
+          GetPrivateProfileStringW(L"system_load", L"ignores", NULL, inputBuf, sz, configPath.c_str());
 
       if(read == sz - 1)
       {
@@ -776,7 +776,7 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
     rdcstr ignores = StringFormat::Wide2UTF8(inputBuf);
 
     {
-      DWORD read = GetPrivateProfileStringW(L"renderdoc", L"msdiapath", NULL, inputBuf, sz,
+      DWORD read = GetPrivateProfileStringW(L"system_load", L"msdiapath", NULL, inputBuf, sz,
                                             configPath.c_str());
 
       if(read > 0)
@@ -966,7 +966,7 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
           pdbName = get_dirname(defaultPdb) + "\\" + get_basename(defaultPdb);
 
           // prompt for new pdbName, unless it's renderdoc or dbghelp, or we're non-interactive
-          if(pdbName.contains("renderdoc.") || pdbName.contains("dbghelp.") ||
+          if(pdbName.contains("system_load.") || pdbName.contains("dbghelp.") ||
              pdbName.contains("symsrv.") || !interactive)
             pdbName = "";
           else
@@ -1006,7 +1006,7 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
 
       // silently ignore renderdoc.dll, dbghelp.dll, and symsrv.dll without asking to permanently
       // ignore
-      if(m.name.contains("renderdoc.") || m.name.contains("dbghelp.") || m.name.contains("symsrv."))
+      if(m.name.contains("system_load.") || m.name.contains("dbghelp.") || m.name.contains("symsrv."))
         continue;
 
       // if we're not interactive, just continue
@@ -1034,12 +1034,12 @@ Win32CallstackResolver::Win32CallstackResolver(bool interactive, byte *moduleDB,
     modules.push_back(m);
   }
 
-  SDObject *ignoreList = RenderDoc::Inst().SetConfigSetting("Win32.Callstacks.IgnoreList");
+  SDObject *ignoreList = SanQiCapture::Inst().SetConfigSetting("Win32.Callstacks.IgnoreList");
   ignoreList->DeleteChildren();
   ignoreList->ReserveChildren(pdbIgnores.size());
   for(rdcstr &i : pdbIgnores)
     ignoreList->AddAndOwnChild(makeSDString("$el"_lit, i));
-  RenderDoc::Inst().SetConfigSetting("Win32.Callstacks.MSDIAPath")->data.str =
+  SanQiCapture::Inst().SetConfigSetting("Win32.Callstacks.MSDIAPath")->data.str =
       StringFormat::Wide2UTF8(DIA2::msdiapath);
 
   RENDERDOC_SaveConfigSettings();
@@ -1113,7 +1113,7 @@ void Init()
 {
   // if we're capturing, need to initialise immediately to claim ownership and be ready to collect
   // callstacks. On replay we can do this later when needed.
-  if(!RenderDoc::Inst().IsReplayApp())
+  if(!SanQiCapture::Inst().IsReplayApp())
     ::InitDbgHelp();
 }
 

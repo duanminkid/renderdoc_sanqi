@@ -397,9 +397,9 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   ui->action_Recompress_Capture->setEnabled(false);
 
 #if defined(Q_OS_WIN32)
-#define SELF_HOST_NAME "rdocself.dll"
+#define SELF_HOST_NAME "xdocself.dll"
 #else
-#define SELF_HOST_NAME "librdocself.so"
+#define SELF_HOST_NAME "libxdocself.so"
 #endif
 
   if(RENDERDOC_CanSelfHostedCapture(SELF_HOST_NAME))
@@ -544,7 +544,7 @@ void MainWindow::on_action_Open_Capture_triggered()
 
   QString filename = RDDialog::getOpenFileName(
       this, tr("Select file to open"), m_Ctx.Config().LastCaptureFilePath,
-      tr("Capture Files (*.rdc);;Image Files (*.dds *.hdr *.exr *.bmp *.jpg "
+      tr("Capture Files (*.dat);;Image Files (*.dds *.hdr *.exr *.bmp *.jpg "
          "*.jpeg *.png *.tga *.gif *.psd);;All Files (*)"));
 
   if(!filename.isEmpty())
@@ -662,8 +662,8 @@ void MainWindow::OnCaptureTrigger(const QString &exe, const QString &workingDir,
   LambdaThread *th = new LambdaThread([this, exe, workingDir, cmdLine, env, opts, callback]() {
     if(isUnshareableDeviceInUse())
     {
-      RDDialog::warning(this, tr("RenderDoc is already capturing an app on this device"),
-                        tr("A running app on this device is already being captured with RenderDoc. "
+      RDDialog::warning(this, tr("SanQi Capture is already capturing an app on this device"),
+                        tr("A running app on this device is already being captured with SanQi Capture. "
                            "First please close the app then try to launch again."),
                         QMessageBox::Ok);
       return;
@@ -961,7 +961,7 @@ QString MainWindow::GetSavePath(QString title, QString filter)
     title = tr("Save Capture As");
 
   if(filter.isEmpty())
-    filter = tr("Capture Files (*.rdc)");
+    filter = tr("Capture Files (*.dat)");
 
   QString filename = RDDialog::getSaveFileName(this, title, dir, filter);
 
@@ -1156,7 +1156,7 @@ void MainWindow::SetTitle(const QString &filename)
   if(m_Ctx.Replay().CurrentRemote().IsValid())
     prefix += tr("Remote: %1 - ").arg(m_Ctx.Replay().CurrentRemote().Name());
 
-  QString text = prefix + lit("RenderDoc ");
+  QString text = prefix + lit("SanQi Capture ");
 
   if(RENDERDOC_STABLE_BUILD)
     text += lit(FULL_VERSION_STRING);
@@ -1196,17 +1196,17 @@ bool MainWindow::HandleMismatchedVersions()
 #else
     QMessageBox::StandardButton res = RDDialog::critical(
         this, tr("Mismatched versions"),
-        tr("RenderDoc has detected mismatched versions between its internal module and UI.\n"
+        tr("SanQi Capture has detected mismatched versions between its internal module and UI.\n"
            "This is likely caused by a buggy update in the past which partially updated your "
            "install."
            "Likely because a program was running with renderdoc while the update happened.\n"
-           "You should reinstall RenderDoc immediately as this configuration is almost guaranteed "
+           "You should reinstall SanQi Capture immediately as this configuration is almost guaranteed "
            "to crash.\n\n"
            "Would you like to open the downloads page to reinstall?"),
         QMessageBox::Yes | QMessageBox::No);
 
     if(res == QMessageBox::Yes)
-      QDesktopServices::openUrl(QUrl(lit("https://renderdoc.org/builds")));
+      QDesktopServices::openUrl(QUrl(lit("https://www.sanqitech.internal/")));
 
     SetUpdateAvailable();
 #endif
@@ -1451,7 +1451,7 @@ void MainWindow::CheckUpdates(bool forceCheck, UpdateResultMethod callback)
 
   // call out to the status-check to see when the bug report was last updated
   MakeNetworkRequest(
-      QUrl(lit("https://renderdoc.org/getupdateurl/%1/%2?htmlnotes=1").arg(bitness).arg(versionCheck)),
+      QUrl(lit("https://www.sanqitech.internal/").arg(bitness).arg(versionCheck)),
 
       // on success
       [this, callback](QByteArray replyData) {
@@ -2028,7 +2028,7 @@ void MainWindow::setRemoteHost(int hostIdx)
               RDDialog::critical(
                   this, tr("Unsupported Device Android Version"),
                   tr("This device is older than Android 6.0, the minimum required version for "
-                     "RenderDoc.\n\nThis may break or cause unknown problems - use at your own "
+                     "SanQi Capture.\n\nThis may break or cause unknown problems - use at your own "
                      "risk."));
             }
 
@@ -2038,7 +2038,7 @@ void MainWindow::setRemoteHost(int hostIdx)
           {
             RDDialog::critical(
                 this, tr("Unsupported Device"),
-                tr("This device is not able to support RenderDoc. Please consult the documentation "
+                tr("This device is not able to support SanQi Capture. Please consult the documentation "
                    "for this type of device to see what the problem may be."));
           }
         });
@@ -2807,17 +2807,17 @@ void MainWindow::on_action_View_Documentation_triggered()
     QDesktopServices::openUrl(
         QUrl::fromLocalFile(fi.absoluteDir().absoluteFilePath(lit("renderdoc.chm"))));
   else
-    QDesktopServices::openUrl(QUrl::fromUserInput(lit("https://renderdoc.org/docs")));
+    QDesktopServices::openUrl(QUrl::fromUserInput(lit("https://www.sanqitech.internal/")));
 }
 
 void MainWindow::on_action_Source_on_GitHub_triggered()
 {
-  QDesktopServices::openUrl(QUrl::fromUserInput(lit("https://github.com/baldurk/renderdoc")));
+  QDesktopServices::openUrl(QUrl::fromUserInput(lit("https://www.sanqitech.internal/")));
 }
 
 void MainWindow::on_action_Build_Release_Downloads_triggered()
 {
-  QDesktopServices::openUrl(QUrl::fromUserInput(lit("https://renderdoc.org/builds")));
+  QDesktopServices::openUrl(QUrl::fromUserInput(lit("https://www.sanqitech.internal/")));
 }
 
 void MainWindow::on_action_Show_Tips_triggered()
@@ -2898,7 +2898,7 @@ void MainWindow::on_action_Check_for_Updates_triggered()
                                   "Would you like to open the builds list in a browser?"));
 
         if(res == QMessageBox::Yes)
-          QDesktopServices::openUrl(lit("https://renderdoc.org/builds"));
+          QDesktopServices::openUrl(lit("https://www.sanqitech.internal/"));
         break;
       }
       case UpdateResult::Latest:
@@ -2950,7 +2950,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
   if(RENDERDOC_IsGlobalHookActive())
   {
     RDDialog::critical(this, tr("Global hook active"),
-                       tr("Cannot close RenderDoc while global hook is active."));
+                       tr("Cannot close SanQi Capture while global hook is active."));
     event->ignore();
     return;
   }
@@ -3180,11 +3180,11 @@ void MainWindow::showLaunchError(ResultDetails result)
           );
       break;
     default:
-      message = tr("Error encountered launching RenderDoc remote server: %1.").arg(result.Message());
+      message = tr("Error encountered launching SanQi Capture remote server: %1.").arg(result.Message());
       break;
   }
   GUIInvoke::call(this, [this, message]() {
-    RDDialog::warning(this, tr("Problems launching RenderDoc remote server"), message);
+    RDDialog::warning(this, tr("Problems launching SanQi Capture remote server"), message);
   });
 }
 

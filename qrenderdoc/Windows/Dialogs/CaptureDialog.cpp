@@ -353,9 +353,9 @@ void CaptureDialog::vulkanLayerWarn_mouseClick()
   {
     QString msg =
         tr("There is an unfixable problem with your vulkan layer configuration.\n\n"
-           "This is most commonly caused by having a distribution-provided package of RenderDoc "
-           "installed, which cannot be modified by another build of RenderDoc.\n\n"
-           "Please consult the RenderDoc documentation, or package/distribution documentation on "
+           "This is most commonly caused by having a distribution-provided package of SanQi Capture "
+           "installed, which cannot be modified by another build of SanQi Capture.\n\n"
+           "Please consult the SanQi Capture documentation, or package/distribution documentation on "
            "linux. ");
 
     if(info.otherJSONs.size() > 1)
@@ -371,17 +371,17 @@ void CaptureDialog::vulkanLayerWarn_mouseClick()
   }
 
   QString msg =
-      tr("Vulkan capture happens through the API's layer mechanism. RenderDoc has detected that ");
+      tr("Vulkan capture happens through the API's layer mechanism. SanQi Capture has detected that ");
 
   if(hasOtherJSON)
   {
     if(info.otherJSONs.size() > 1)
       msg +=
-          tr("there are other conflicting RenderDoc builds registered already. They must be "
+          tr("there are other conflicting SanQi Capture builds registered already. They must be "
              "disabled so that vulkan programs can be captured without crashes.");
     else
       msg +=
-          tr("there is another conflicting RenderDoc build registered already. It must be disabled "
+          tr("there is another conflicting SanQi Capture build registered already. It must be disabled "
              "so that vulkan programs can be captured without crashes.");
 
     if(!thisRegistered)
@@ -425,7 +425,7 @@ void CaptureDialog::vulkanLayerWarn_mouseClick()
 
   if(needElevation)
     msg +=
-        tr("Due to some builds being in privileged locations, RenderDoc must elevate permissions "
+        tr("Due to some builds being in privileged locations, SanQi Capture must elevate permissions "
            "to update them.\n\n");
 
   msg += tr("This is a one-off change, it won't be needed again unless the installation moves.");
@@ -447,11 +447,11 @@ void CaptureDialog::vulkanLayerWarn_mouseClick()
 
       if(needElevation)
         msg +=
-            tr("\n\nNote that RenderDoc needs to elevate permissions to update the registration "
+            tr("\n\nNote that SanQi Capture needs to elevate permissions to update the registration "
                "regardless.");
       else
         msg +=
-            tr("\n\nNote that RenderDoc will need to elevate permissions to register at system "
+            tr("\n\nNote that SanQi Capture will need to elevate permissions to register at system "
                "level.");
 
       QMessageBox::StandardButton elevate =
@@ -777,7 +777,7 @@ void CaptureDialog::on_toggleGlobal_clicked()
     {
       QMessageBox::StandardButton res = RDDialog::question(
           this, tr("Restart as admin?"),
-          tr("RenderDoc needs to restart with administrator privileges. Restart?"),
+          tr("SanQi Capture needs to restart with administrator privileges. Restart?"),
           RDDialog::YesNoCancel);
 
       if(res == QMessageBox::Yes)

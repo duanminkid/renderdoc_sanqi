@@ -455,7 +455,7 @@ inline SDObject *makeSDObject(const rdcinflexiblestr &name, const rdcarray<rdcst
                                                                                           \
     obj = setting->GetChild(0);                                                           \
                                                                                           \
-    RenderDoc::Inst().RegisterSetting(name, setting);                                     \
+    SanQiCapture::Inst().RegisterSetting(name, setting);                                     \
   }
 
 CONFIG_SUPPORT_TYPE(bool)
@@ -464,9 +464,9 @@ CONFIG_SUPPORT_TYPE(uint32_t)
 CONFIG_SUPPORT_TYPE(rdcstr)
 CONFIG_SUPPORT_TYPE(rdcarray<rdcstr>)
 
-void RenderDoc::ProcessConfig()
+void SanQiCapture::ProcessConfig()
 {
-  rdcstr confFile = FileIO::GetAppFolderFilename("renderdoc.conf");
+  rdcstr confFile = FileIO::GetAppFolderFilename("sanqi.conf");
 
   RDCLOG("Loading config from %s", confFile.c_str());
 
@@ -512,11 +512,11 @@ void RenderDoc::ProcessConfig()
   delete loadedConfig;
 }
 
-void RenderDoc::SaveConfigSettings()
+void SanQiCapture::SaveConfigSettings()
 {
   if(IsReplayApp())
   {
-    rdcstr confFile = FileIO::GetAppFolderFilename("renderdoc.conf");
+    rdcstr confFile = FileIO::GetAppFolderFilename("sanqi.conf");
 
     bool success = false;
 
@@ -535,17 +535,17 @@ void RenderDoc::SaveConfigSettings()
   }
 }
 
-const SDObject *RenderDoc::GetConfigSetting(const rdcstr &settingPath)
+const SDObject *SanQiCapture::GetConfigSetting(const rdcstr &settingPath)
 {
   return FindConfigSetting(settingPath);
 }
 
-SDObject *RenderDoc::SetConfigSetting(const rdcstr &settingPath)
+SDObject *SanQiCapture::SetConfigSetting(const rdcstr &settingPath)
 {
   return FindConfigSetting(settingPath);
 }
 
-SDObject *RenderDoc::FindConfigSetting(const rdcstr &settingPath)
+SDObject *SanQiCapture::FindConfigSetting(const rdcstr &settingPath)
 {
   if(settingPath.empty())
     return m_Config;
@@ -574,7 +574,7 @@ SDObject *RenderDoc::FindConfigSetting(const rdcstr &settingPath)
   return NULL;
 }
 
-void RenderDoc::RegisterSetting(const rdcstr &settingPath, SDObject *setting)
+void SanQiCapture::RegisterSetting(const rdcstr &settingPath, SDObject *setting)
 {
   SDObject *cur = m_Config;
 
@@ -605,7 +605,22 @@ void RenderDoc::RegisterSetting(const rdcstr &settingPath, SDObject *setting)
 
   SDObject *obj = cur->FindChild(path);
   if(obj != NULL)
+  {
+    // diag: log duplicate setting name
+    {
+      HANDLE h = CreateFileA("C:\\sqc_dup_setting.txt", FILE_APPEND_DATA,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                             OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+      if(h != INVALID_HANDLE_VALUE)
+      {
+        rdcstr msg = rdcstr("DUPLICATE: ") + settingPath + "\n";
+        DWORD w;
+        WriteFile(h, msg.c_str(), (DWORD)msg.size(), &w, NULL);
+        CloseHandle(h);
+      }
+    }
     RDCFATAL("Duplicate setting %s", settingPath.c_str());
+  }
 
   cur->AddAndOwnChild(setting);
 }

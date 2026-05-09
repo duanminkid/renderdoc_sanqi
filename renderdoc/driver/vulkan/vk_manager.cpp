@@ -643,7 +643,7 @@ void VulkanResourceManager::MarkSparseMapReferenced(const ResourceInfo *sparse)
 
 void VulkanResourceManager::SetInternalResource(ResourceId id)
 {
-  if(!RenderDoc::Inst().IsReplayApp())
+  if(!SanQiCapture::Inst().IsReplayApp())
   {
     VkResourceRecord *record = GetResourceRecord(id);
     if(record)

@@ -291,7 +291,7 @@ public:
   {
     parser.add<uint32_t>("PID", 0, "The process ID of the process to inject.", true);
   }
-  virtual const char *Description() { return "Injects RenderDoc into a given running process."; }
+  virtual const char *Description() { return "Injects SanQi Capture into a given running process."; }
   virtual bool IsInternalOnly() { return false; }
   virtual bool IsCaptureCommand() { return true; }
   virtual bool Parse(cmdline::parser &parser, GlobalEnvironment &)
@@ -470,7 +470,7 @@ public:
     parser.add("preview", 'v', "Display a preview window when a replay is active.");
     parser.add<uint32_t>(
         "port", 'p',
-        "The port to listen on. Default is 0, which listens on RenderDoc's default port.", false, 0);
+        "The port to listen on. Default is 0, which listens on SanQi Capture's default port.", false, 0);
   }
   virtual const char *Description()
   {
@@ -1284,7 +1284,7 @@ public:
   {
     parser.add("explain", '\0',
                "Explain what the status of the layer registration is, and how it can be resolved");
-    parser.add("register", '\0', "Register RenderDoc's vulkan layer");
+    parser.add("register", '\0', "Register SanQi Capture's vulkan layer");
     parser.add("user", '\0',
                "Install layer registration at user-local level instead of system-wide");
     parser.add("system", '\0', "Install layer registration system-wide (requires admin privileges)");
@@ -1316,9 +1316,9 @@ public:
         {
           std::cerr << "** There is an unfixable problem with your vulkan layer configuration.\n\n"
                        "This is most commonly caused by having a distribution-provided package of "
-                       "RenderDoc "
-                       "installed, which cannot be modified by another build of RenderDoc.\n\n"
-                       "Please consult the RenderDoc documentation, or package/distribution "
+                       "SanQi Capture "
+                       "installed, which cannot be modified by another build of SanQi Capture.\n\n"
+                       "Please consult the SanQi Capture documentation, or package/distribution "
                        "documentation on "
                        "linux."
                     << std::endl;
@@ -1341,10 +1341,10 @@ public:
         std::cerr << std::endl;
 
         if(m_Info.flags & VulkanLayerFlags::OtherInstallsRegistered)
-          std::cerr << " - Non-matching RenderDoc layer(s) are registered." << std::endl;
+          std::cerr << " - Non-matching SanQi Capture layer(s) are registered." << std::endl;
 
         if(!(m_Info.flags & VulkanLayerFlags::ThisInstallRegistered))
-          std::cerr << " - This build's RenderDoc layer is not registered." << std::endl;
+          std::cerr << " - This build's SanQi Capture layer is not registered." << std::endl;
 
         std::cerr << std::endl;
 
@@ -1414,7 +1414,7 @@ public:
       }
       else
       {
-        std::cerr << "The RenderDoc vulkan layer appears to be correctly registered." << std::endl;
+        std::cerr << "The SanQi Capture vulkan layer appears to be correctly registered." << std::endl;
       }
 
       // don't do anything if we're just explaining the situation
@@ -1494,7 +1494,7 @@ static int command_usage(std::string command)
               << std::endl;
 
   std::cerr << "Usage: renderdoccmd <command> [args ...]" << std::endl;
-  std::cerr << "Command line tool for capture & replay with RenderDoc." << std::endl << std::endl;
+  std::cerr << "Command line tool for capture & replay with SanQi Capture." << std::endl << std::endl;
 
   std::cerr << "Command can be one of:" << std::endl;
 
@@ -1522,7 +1522,7 @@ static int command_usage(std::string command)
   std::cerr << "To see details of any command, see 'renderdoccmd <command> --help'" << std::endl
             << std::endl;
 
-  std::cerr << "For more information, see <https://renderdoc.org/>." << std::endl;
+  std::cerr << "For more information, see <https://www.sanqitech.internal/>." << std::endl;
 
   return 2;
 }

@@ -59,7 +59,7 @@ public:
 
     ///////////////////
 
-    rdcstr dumpFolder = FileIO::GetTempFolderFilename() + "RenderDoc\\dumps\\a";
+    rdcstr dumpFolder = FileIO::GetTempFolderFilename() + "SanQi Capture\\dumps\\a";
     FileIO::CreateParentDirectory(dumpFolder);
     dumpFolder.pop_back();
     dumpFolder.pop_back();
@@ -71,7 +71,7 @@ public:
         google_breakpad::CustomInfoEntry(L"logpath", L""),
         google_breakpad::CustomInfoEntry(L"gitcommit", L""),
         google_breakpad::CustomInfoEntry(L"replaycrash",
-                                         RenderDoc::Inst().IsReplayApp() ? L"1" : L"0"),
+                                         SanQiCapture::Inst().IsReplayApp() ? L"1" : L"0"),
     };
 
     rdcwstr wideStr = StringFormat::UTF82Wide(rdcstr(FULL_VERSION_STRING));
@@ -128,14 +128,14 @@ public:
     si.dwFlags |= STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_HIDE;
 
-    HANDLE waitEvent = CreateEventA(NULL, TRUE, FALSE, "RENDERDOC_CRASHHANDLE");
+    HANDLE waitEvent = CreateEventA(NULL, TRUE, FALSE, "SANQI_CRASHHANDLE");
 
     rdcstr dllpath;
     FileIO::GetLibraryFilename(dllpath);
 
     rdcstr cmdline = "\"";
     cmdline += get_dirname(dllpath);
-    cmdline += "/renderdoccmd.exe\" crashhandle --pipe ";
+    cmdline += "/sanqicapture.exe\" crashhandle --pipe ";
     cmdline += m_PipeName;
 
     rdcwstr params = StringFormat::UTF82Wide(cmdline);
@@ -165,7 +165,7 @@ private:
 
   rdcstr NewPipeName()
   {
-    return StringFormat::Fmt("\\\\.\\pipe\\RenderDocBreakpadServer%llu", Timing::GetTick());
+    return StringFormat::Fmt("\\\\.\\pipe\\SanQiBreakpadServer%llu", Timing::GetTick());
   }
 };
 

@@ -24,7 +24,7 @@
 
 #pragma once
 
-// This file controls the telemetry/analytics functionality in RenderDoc.
+// This file controls the telemetry/analytics functionality in SanQi Capture.
 //
 // If you don't care about any details and just want to make sure this is turned off for your builds
 // then go below to #define RENDERDOC_ANALYTICS_ENABLE and change it to 0. That will cease all
@@ -34,7 +34,7 @@
 //
 // -------------------------------------------------------------------------------------------------
 //
-// RenderDoc's analytics works in two phases: Data is recorded first to an internal database that
+// SanQi Capture's analytics works in two phases: Data is recorded first to an internal database that
 // can contain more information than will be sent, to allow for accurate tracking before
 // aggregation. This isn't as scary as it sounds - e.g. consider the 'UsageLevel' stat that's
 // reported, which is a number in the range 1 to 31 indicating how many days in the month the
@@ -159,7 +159,7 @@ struct Analytics
     // whether a development build has been run - either a nightly build or a local build.
     bool DevelBuildRun = false;
 
-    // whether an official build has been run - whether distributed from the RenderDoc website or
+    // whether an official build has been run - whether distributed from the SanQi Capture website or
     // through a linux distribution
     bool OfficialBuildRun = false;
 

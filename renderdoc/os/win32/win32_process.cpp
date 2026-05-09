@@ -29,12 +29,27 @@
 #include <Psapi.h>
 #include <tchar.h>
 #include <tlhelp32.h>
+#include <winternl.h>
 #include "common/formatting.h"
 #include "core/core.h"
 #include "os/os_specific.h"
 #include "strings/string_utils.h"
 
 #include <string>
+
+// PEB-unlink-safe self-handle lookup. Cached in DllMain before stealth is applied.
+static HMODULE GetSelfDllHandle()
+{
+  return GetCachedSelfModuleHandle();
+}
+
+// NtCreateThreadEx: undocumented NT API (kept for future use)
+typedef NTSTATUS(NTAPI *PFN_NtCreateThreadEx)(PHANDLE ThreadHandle, ACCESS_MASK DesiredAccess,
+                                              PVOID ObjectAttributes, HANDLE ProcessHandle,
+                                              PVOID StartRoutine, PVOID Argument,
+                                              ULONG CreateFlags, SIZE_T ZeroBits,
+                                              SIZE_T StackSize, SIZE_T MaximumStackSize,
+                                              PVOID AttributeList);
 
 static rdcarray<EnvironmentModification> &GetEnvModifications()
 {
@@ -133,7 +148,7 @@ static void ApplyEnvModifications(EnvMap &envValues,
 }
 
 // on windows we apply environment changes here, after process initialisation
-// but before any real work (in RenderDoc::Initialise) so that we support
+// but before any real work (in SanQi Capture::Initialise) so that we support
 // injecting the dll into processes we didn't launch (ie didn't control the
 // starting environment for), or even the application loading the dll itself
 // without any interaction with our replay app.
@@ -195,19 +210,19 @@ uint64_t Process::GetMemoryUsage()
 extern "C" __declspec(dllexport) void __cdecl INTERNAL_GetTargetControlIdent(uint32_t *ident)
 {
   if(ident)
-    *ident = RenderDoc::Inst().GetTargetControlIdent();
+    *ident = SanQiCapture::Inst().GetTargetControlIdent();
 }
 
 extern "C" __declspec(dllexport) void __cdecl INTERNAL_SetCaptureOptions(CaptureOptions *opts)
 {
   if(opts)
-    RenderDoc::Inst().SetCaptureOptions(*opts);
+    SanQiCapture::Inst().SetCaptureOptions(*opts);
 }
 
 extern "C" __declspec(dllexport) void __cdecl INTERNAL_SetCaptureFile(const char *capfile)
 {
   if(capfile)
-    RenderDoc::Inst().SetCaptureFileTemplate(capfile);
+    SanQiCapture::Inst().SetCaptureFileTemplate(capfile);
 }
 
 extern "C" __declspec(dllexport) void __cdecl INTERNAL_SetDebugLogFile(const char *logfile)
@@ -263,7 +278,7 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
   }
 
   void *remoteMem =
-      VirtualAllocEx(hProcess, NULL, sizeof(dllPath), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+      VirtualAllocEx(hProcess, NULL, sizeof(dllPath), MEM_COMMIT, PAGE_READWRITE);
   if(remoteMem)
   {
     BOOL success = WriteProcessMemory(hProcess, remoteMem, (void *)dllPath, sizeof(dllPath), NULL);
@@ -275,7 +290,23 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
       if(hThread)
       {
         WaitForSingleObject(hThread, INFINITE);
+        DWORD threadExitCode = 0;
+        GetExitCodeThread(hThread, &threadExitCode);
         CloseHandle(hThread);
+        // Log LoadLibraryW result (exit code = HMODULE, 0 means failure)
+        char diagBuf[256];
+        wsprintfA(diagBuf, "[SQC-DIAG] InjectDLL: LoadLibraryW exitCode(HMODULE)=0x%X err=%u\r\n",
+                  threadExitCode, GetLastError());
+        OutputDebugStringA(diagBuf);
+        HANDLE hf = CreateFileA("C:\\sqc_inject_diag.txt", FILE_APPEND_DATA,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS,
+                                FILE_ATTRIBUTE_NORMAL, NULL);
+        if(hf != INVALID_HANDLE_VALUE)
+        {
+          DWORD w;
+          WriteFile(hf, diagBuf, (DWORD)lstrlenA(diagBuf), &w, NULL);
+          CloseHandle(hf);
+        }
       }
       else
       {
@@ -409,16 +440,19 @@ void InjectFunctionCall(HANDLE hProcess, uintptr_t renderdoc_remote, const char 
 
   RDCDEBUG("Injecting call to %s", funcName);
 
-  HMODULE renderdoc_local = GetModuleHandleA(STRINGIZE(RDOC_BASE_NAME) ".dll");
+  HMODULE renderdoc_local = GetSelfDllHandle();
 
-  uintptr_t func_local = (uintptr_t)GetProcAddress(renderdoc_local, funcName);
+  // Use cached proc address (safe after PE header wipe by ApplyModuleStealth)
+  uintptr_t func_local = GetCachedProcAddress(funcName);
+  if(func_local == 0)
+    func_local = (uintptr_t)GetProcAddress(renderdoc_local, funcName);
 
   // we've found SetCaptureOptions in our local instance of the module, now calculate the offset and
   // so get the function
   // in the remote module (which might be loaded at a different base address
   uintptr_t func_remote = func_local + renderdoc_remote - (uintptr_t)renderdoc_local;
 
-  void *remoteMem = VirtualAllocEx(hProcess, NULL, dataLen, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+  void *remoteMem = VirtualAllocEx(hProcess, NULL, dataLen, MEM_COMMIT, PAGE_READWRITE);
   SIZE_T numWritten;
   WriteProcessMemory(hProcess, remoteMem, data, dataLen, &numWritten);
 
@@ -563,6 +597,26 @@ static PROCESS_INFORMATION RunProcess(const rdcstr &app, const rdcstr &workingDi
   {
     if(!internal)
       RDCWARN("Process %s could not be loaded (error %d).", app.c_str(), err);
+
+    // diagnostic: log CreateProcessW failure details
+    {
+      char diagBuf[512];
+      wsprintfA(diagBuf,
+                "[SQC-DIAG] RunProcess FAILED: app='%s' workdir='%s' err=%u "
+                "(0x%08X)\r\n",
+                app.c_str(), workingDir.c_str(), err, err);
+      OutputDebugStringA(diagBuf);
+      HANDLE hf = CreateFileA("C:\\sqc_inject_diag.txt", FILE_APPEND_DATA,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+      if(hf != INVALID_HANDLE_VALUE)
+      {
+        DWORD w;
+        WriteFile(hf, diagBuf, (DWORD)lstrlenA(diagBuf), &w, NULL);
+        CloseHandle(hf);
+      }
+    }
+
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     RDCEraseEl(pi);
@@ -610,8 +664,29 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
   RDCLOG("Injecting renderdoc into process %lu", pid);
 
   wchar_t renderdocPath[MAX_PATH] = {0};
-  GetModuleFileNameW(GetModuleHandleA(STRINGIZE(RDOC_BASE_NAME) ".dll"), &renderdocPath[0],
-                                      MAX_PATH - 1);
+  // Use cached path (safe after PEB unlink invalidates GetModuleFileNameW)
+  const wchar_t *cachedPath = GetCachedSelfModulePath();
+  if(cachedPath && cachedPath[0])
+    wcscpy_s(renderdocPath, cachedPath);
+  else
+    GetModuleFileNameW(GetSelfDllHandle(), &renderdocPath[0], MAX_PATH - 1);
+
+  // Diagnose if GetModuleFileNameW failed after PEB unlink
+  {
+    char diagBuf[512];
+    wsprintfA(diagBuf, "[SQC-DIAG] InjectIntoProcess: renderdocPath='%ls' err=%u\r\n",
+              renderdocPath, GetLastError());
+    OutputDebugStringA(diagBuf);
+    HANDLE hf = CreateFileA("C:\\sqc_inject_diag.txt", FILE_APPEND_DATA,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS,
+                            FILE_ATTRIBUTE_NORMAL, NULL);
+    if(hf != INVALID_HANDLE_VALUE)
+    {
+      DWORD w;
+      WriteFile(hf, diagBuf, (DWORD)lstrlenA(diagBuf), &w, NULL);
+      CloseHandle(hf);
+    }
+  }
 
   wchar_t renderdocPathLower[MAX_PATH] = {0};
   memcpy(renderdocPathLower, renderdocPath, MAX_PATH * sizeof(wchar_t));
@@ -669,9 +744,9 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
   // We don't support capturing 64-bit programs from a 32-bit install
   // because it's pointless - a 64-bit install will work for all in
   // that case. But we do want to handle the case of:
-  // 64-bit renderdoc -> 32-bit program (via 32-bit renderdoccmd)
-  //    -> 64-bit program (going back to 64-bit renderdoccmd).
-  // so we try to see if we're an x86 invoked renderdoccmd in an
+  // 64-bit renderdoc -> 32-bit program (via 32-bit sanqicapture)
+  //    -> 64-bit program (going back to 64-bit sanqicapture).
+  // so we try to see if we're an x86 invoked sanqicapture in an
   // otherwise 64-bit install, and 'promote' back to 64-bit.
   if(selfWow64 && !isWow64)
   {
@@ -711,13 +786,13 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
       CloseHandle(hProcess);
       RDResult result;
       SET_ERROR_RESULT(result, ResultCode::IncompatibleProcess,
-                       "Can't capture 64-bit program with 32-bit build of RenderDoc. Please run a "
-                       "64-bit build of RenderDoc");
+                       "Can't capture 64-bit program with 32-bit build of SanQi Capture. Please run a "
+                       "64-bit build of SanQi Capture");
       return {result, 0};
     }
   }
 #else
-  // farm off to alternate bitness renderdoccmd.exe
+  // farm off to alternate bitness sanqicapture.exe
 
   // if the target process is 'wow64' that means it's 32-bit.
   capalt = (isWow64 == TRUE);
@@ -735,7 +810,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
       renderdocPath[idx] = 0;
 
-      wcscat_s(renderdocPath, L"\\Win32\\Development\\renderdoccmd.exe");
+      wcscat_s(renderdocPath, L"\\Win32\\Development\\sanqicapture.exe");
     }
 
     if(!devLocation)
@@ -748,7 +823,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
         renderdocPath[idx] = 0;
 
-        wcscat_s(renderdocPath, L"\\Win32\\Release\\renderdoccmd.exe");
+        wcscat_s(renderdocPath, L"\\Win32\\Release\\sanqicapture.exe");
       }
     }
 
@@ -763,7 +838,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
         *slash = 0;
 
       // append path
-      wcscat_s(renderdocPath, L"\\x86\\renderdoccmd.exe");
+      wcscat_s(renderdocPath, L"\\x86\\sanqicapture.exe");
     }
 #else
     // if it looks like we're in the development environment, look for the alternate bitness in the
@@ -775,7 +850,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
       renderdocPath[idx] = 0;
 
-      wcscat_s(renderdocPath, L"\\x64\\Development\\renderdoccmd.exe");
+      wcscat_s(renderdocPath, L"\\x64\\Development\\sanqicapture.exe");
     }
 
     if(!devLocation)
@@ -788,13 +863,13 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
         renderdocPath[idx] = 0;
 
-        wcscat_s(renderdocPath, L"\\x64\\Release\\renderdoccmd.exe");
+        wcscat_s(renderdocPath, L"\\x64\\Release\\sanqicapture.exe");
       }
     }
 
     if(!devLocation)
     {
-      // look upwards on 32-bit to find the parent renderdoccmd.
+      // look upwards on 32-bit to find the parent sanqicapture.
       wchar_t *slash = wcsrchr(renderdocPath, L'\\');
 
       // remove the filename
@@ -808,7 +883,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
         *slash = 0;
 
       // append path
-      wcscat_s(renderdocPath, L"\\renderdoccmd.exe");
+      wcscat_s(renderdocPath, L"\\sanqicapture.exe");
     }
 #endif
 
@@ -926,12 +1001,12 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
       RDResult result;
 #if RENDERDOC_OFFICIAL_BUILD
       SET_ERROR_RESULT(result, ResultCode::InternalError,
-                       "Can't run 32-bit renderdoccmd to capture 32-bit program.");
+                       "Can't run 32-bit sanqicapture to capture 32-bit program.");
 #else
       SET_ERROR_RESULT(
           result, ResultCode::InternalError,
-          "Can't run 32-bit renderdoccmd to capture 32-bit program."
-          "If this is a locally built RenderDoc you must build both 32-bit and 64-bit versions.");
+          "Can't run 32-bit sanqicapture to capture 32-bit program."
+          "If this is a locally built SanQi Capture you must build both 32-bit and 64-bit versions.");
 #endif
       CloseHandle(hProcess);
       return {result, 0};
@@ -963,7 +1038,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
       ResultCode code = (ResultCode)exitCode;
 
       RDResult result;
-      SET_ERROR_RESULT(result, code, "32-bit renderdoccmd returned '%s'", ToStr(code).c_str());
+      SET_ERROR_RESULT(result, code, "32-bit sanqicapture returned '%s'", ToStr(code).c_str());
       return {code, 0};
     }
 
@@ -1130,8 +1205,27 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     const rdcarray<EnvironmentModification> &env, const rdcstr &capturefile,
     const CaptureOptions &opts, bool waitForExit)
 {
-  void *func =
-      GetProcAddress(GetModuleHandleA(STRINGIZE(RDOC_BASE_NAME) ".dll"), "INTERNAL_SetCaptureFile");
+  HMODULE selfHandle = GetSelfDllHandle();
+  // Use cached proc address (safe after PE header wipe by ApplyModuleStealth)
+  void *func = (void *)GetCachedProcAddress("INTERNAL_SetCaptureFile");
+  if(func == NULL)
+    func = GetProcAddress(selfHandle, "INTERNAL_SetCaptureFile");
+
+  // diagnostic: log handle and export lookup result
+  {
+    char diagBuf[256];
+    wsprintfA(diagBuf, "[SQC-DIAG] LaunchAndInject: selfHandle=%p func=%p\r\n", selfHandle, func);
+    OutputDebugStringA(diagBuf);
+    HANDLE hf = CreateFileA("C:\\sqc_inject_diag.txt", FILE_APPEND_DATA,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                            OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if(hf != INVALID_HANDLE_VALUE)
+    {
+      DWORD w;
+      WriteFile(hf, diagBuf, (DWORD)lstrlenA(diagBuf), &w, NULL);
+      CloseHandle(hf);
+    }
+  }
 
   if(func == NULL)
   {
@@ -1148,7 +1242,7 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     RDResult result;
     SET_ERROR_RESULT(
         result, ResultCode::InjectionFailed,
-        "For safety reasons RenderDoc does not support capturing executables with a "
+        "For safety reasons SanQi Capture does not support capturing executables with a "
         "reserved system filename such as '%s'. Please rename your executable to capture.",
         get_basename(app).c_str());
     return {result, 0};
@@ -1221,7 +1315,7 @@ static RDResult HandleRegError(HKEY keyNative, HKEY keyWow32, LSTATUS ret, const
 
   RETURN_ERROR_RESULT(ResultCode::InjectionFailed,
                       "Error updating registry to enable global hook.\n"
-                      "Check that RenderDoc is correctly running as administrator.");
+                      "Check that SanQi Capture is correctly running as administrator.");
 }
 
 #define REG_CHECK(msg)                                    \
@@ -1247,8 +1341,8 @@ RDResult BackupAndChangeRegistry(GlobalHookData &hookdata, const rdcstr &shimpat
   {
     RETURN_ERROR_RESULT(
         ResultCode::FileIOFailed,
-        "RenderDoc is installed on a volume or system that has short paths disabled.\n"
-        "For the global hook, short paths must be enabled where RenderDoc is installed.");
+        "SanQi Capture is installed on a volume or system that has short paths disabled.\n"
+        "For the global hook, short paths must be enabled where SanQi Capture is installed.");
   }
 
   if(!shimpathWow32.empty())
@@ -1260,8 +1354,8 @@ RDResult BackupAndChangeRegistry(GlobalHookData &hookdata, const rdcstr &shimpat
     {
       RETURN_ERROR_RESULT(
           ResultCode::FileIOFailed,
-          "RenderDoc is installed on a volume or system that has short paths disabled.\n"
-          "For the global hook, short paths must be enabled where RenderDoc is installed.");
+          "SanQi Capture is installed on a volume or system that has short paths disabled.\n"
+          "For the global hook, short paths must be enabled where SanQi Capture is installed.");
     }
   }
 
@@ -1379,7 +1473,7 @@ RDResult BackupAndChangeRegistry(GlobalHookData &hookdata, const rdcstr &shimpat
   // write it to disk but don't fail if we can't, just print it to the log and keep going.
   wchar_t reg_backup[MAX_PATH];
   GetTempPathW(MAX_PATH, reg_backup);
-  wcscat_s(reg_backup, L"RenderDoc_RestoreGlobalHook.reg");
+  wcscat_s(reg_backup, L"SanQi_RestoreGlobalHook.reg");
 
   FILE *f = NULL;
   _wfopen_s(&f, reg_backup, L"w");
@@ -1497,8 +1591,8 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
 
   renderdocPath = get_dirname(renderdocPath);
 
-  // the native renderdoccmd.exe is always next to the dll. Wow32 will be somewhere else
-  rdcstr cmdpathNative = renderdocPath + "\\renderdoccmd.exe";
+  // the native sanqicapture.exe is always next to the dll. Wow32 will be somewhere else
+  rdcstr cmdpathNative = renderdocPath + "\\sanqicapture.exe";
   rdcstr cmdpathWow32;
 
   rdcstr shimpathNative = renderdocPath;
@@ -1506,8 +1600,8 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
 
 #if ENABLED(RDOC_X64)
 
-  // native shim is just renderdocshim64.dll
-  shimpathNative = renderdocPath + "\\renderdocshim64.dll";
+  // native shim is just system_shim64.dll
+  shimpathNative = renderdocPath + "\\system_shim64.dll";
 
   // if it looks like we're in the development environment, look for the alternate bitness in the
   // corresponding folder
@@ -1516,8 +1610,8 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
   {
     renderdocPath.erase(devLocation, ~0U);
 
-    shimpathWow32 = renderdocPath + "\\Win32\\Development\\renderdocshim32.dll";
-    cmdpathWow32 = renderdocPath + "\\Win32\\Development\\renderdoccmd.exe";
+    shimpathWow32 = renderdocPath + "\\Win32\\Development\\system_shim32.dll";
+    cmdpathWow32 = renderdocPath + "\\Win32\\Development\\sanqicapture.exe";
   }
   else
   {
@@ -1527,22 +1621,22 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
     {
       renderdocPath.erase(devLocation, ~0U);
 
-      shimpathWow32 = renderdocPath + "\\Win32\\Release\\renderdocshim32.dll";
-      cmdpathWow32 = renderdocPath + "\\Win32\\Release\\renderdoccmd.exe";
+      shimpathWow32 = renderdocPath + "\\Win32\\Release\\system_shim32.dll";
+      cmdpathWow32 = renderdocPath + "\\Win32\\Release\\sanqicapture.exe";
     }
   }
 
   // if we're not in the dev environment, assume it's under a x86\ subfolder
   if(devLocation < 0)
   {
-    shimpathWow32 = renderdocPath + "\\x86\\renderdocshim32.dll";
-    cmdpathWow32 = renderdocPath + "\\x86\\renderdoccmd.exe";
+    shimpathWow32 = renderdocPath + "\\x86\\system_shim32.dll";
+    cmdpathWow32 = renderdocPath + "\\x86\\sanqicapture.exe";
   }
 
 #else
 
   // nothing fancy to do here for 32-bit, just point the shim next to our dll.
-  shimpathNative = renderdocPath + "\\renderdocshim32.dll";
+  shimpathNative = renderdocPath + "\\system_shim32.dll";
 
 #endif
 
@@ -1630,7 +1724,7 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
   {
     CloseHandle(hookdata.dataNative.pipe);
     RestoreRegistry(hookdata);
-    RETURN_ERROR_RESULT(ResultCode::InternalError, "Can't launch renderdoccmd from '%s' (err %u)",
+    RETURN_ERROR_RESULT(ResultCode::InternalError, "Can't launch sanqicapture from '%s' (err %u)",
                         cmdpathNative.c_str(), err);
   }
 
@@ -1639,7 +1733,7 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
 
   RDCEraseEl(pi);
 
-// repeat the process for the Wow32 renderdoccmd
+// repeat the process for the Wow32 sanqicapture
 #if ENABLED(RDOC_X64)
   params = StringFormat::Fmt(
       "\"%s\" globalhook --match \"%s\" --capfile \"%s\" --debuglog \"%s\" --capopts \"%s\"",
@@ -1691,7 +1785,7 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
     CloseHandle(hookdata.dataNative.pipe);
     CloseHandle(hookdata.dataWow32.pipe);
     RestoreRegistry(hookdata);
-    RETURN_ERROR_RESULT(ResultCode::InternalError, "Can't launch renderdoccmd from '%s' (err %u)",
+    RETURN_ERROR_RESULT(ResultCode::InternalError, "Can't launch sanqicapture from '%s' (err %u)",
                         cmdpathWow32.c_str(), err);
   }
 

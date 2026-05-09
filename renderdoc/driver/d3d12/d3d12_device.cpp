@@ -284,13 +284,13 @@ void STDMETHODCALLTYPE WrappedID3D12SharingContract::Present(_In_ ID3D12Resource
     if(m_pPresentHWND != NULL)
     {
       Keyboard::RemoveInputWindow(WindowingSystem::Win32, m_pPresentHWND);
-      RenderDoc::Inst().RemoveFrameCapturer(
+      SanQiCapture::Inst().RemoveFrameCapturer(
           DeviceOwnedWindow(m_pDevice.GetFrameCapturerDevice(), m_pPresentHWND));
     }
 
     Keyboard::AddInputWindow(WindowingSystem::Win32, window);
 
-    RenderDoc::Inst().AddFrameCapturer(
+    SanQiCapture::Inst().AddFrameCapturer(
         DeviceOwnedWindow(m_pDevice.GetFrameCapturerDevice(), window), m_pDevice.GetFrameCapturer());
   }
 
@@ -564,7 +564,7 @@ WrappedID3D12Device::WrappedID3D12Device(ID3D12Device *realDevice, D3D12InitPara
       m_WrappedNVAPI(*this),
       m_WrappedAGS(*this)
 {
-  RenderDoc::Inst().RegisterMemoryRegion(this, sizeof(WrappedID3D12Device));
+  SanQiCapture::Inst().RegisterMemoryRegion(this, sizeof(WrappedID3D12Device));
 
   m_SectionVersion = D3D12InitParams::CurrentVersion;
 
@@ -722,7 +722,7 @@ WrappedID3D12Device::WrappedID3D12Device(ID3D12Device *realDevice, D3D12InitPara
 
   m_InitParams = params;
 
-  if(RenderDoc::Inst().IsReplayApp())
+  if(SanQiCapture::Inst().IsReplayApp())
   {
     m_State = CaptureState::LoadingReplaying;
 
@@ -807,7 +807,7 @@ WrappedID3D12Device::WrappedID3D12Device(ID3D12Device *realDevice, D3D12InitPara
 
   m_Queue = NULL;
 
-  if(!RenderDoc::Inst().IsReplayApp())
+  if(!SanQiCapture::Inst().IsReplayApp())
   {
     m_DeviceRecord = GetResourceManager()->AddResourceRecord(m_ResourceID);
     m_DeviceRecord->type = Resource_Device;
@@ -820,7 +820,7 @@ WrappedID3D12Device::WrappedID3D12Device(ID3D12Device *realDevice, D3D12InitPara
     m_FrameCaptureRecord->InternalResource = true;
     m_FrameCaptureRecord->Length = 0;
 
-    RenderDoc::Inst().AddDeviceFrameCapturer((ID3D12Device *)this, this);
+    SanQiCapture::Inst().AddDeviceFrameCapturer((ID3D12Device *)this, this);
   }
 
   m_pInfoQueue = NULL;
@@ -837,7 +837,7 @@ WrappedID3D12Device::WrappedID3D12Device(ID3D12Device *realDevice, D3D12InitPara
 
   if(m_pInfoQueue)
   {
-    if(RenderDoc::Inst().GetCaptureOptions().debugOutputMute)
+    if(SanQiCapture::Inst().GetCaptureOptions().debugOutputMute)
       m_pInfoQueue->SetMuteDebugOutput(true);
 
     UINT size = m_pInfoQueue->GetStorageFilterStackSize();
@@ -858,7 +858,7 @@ WrappedID3D12Device::WrappedID3D12Device(ID3D12Device *realDevice, D3D12InitPara
 
     m_pInfoQueue->ClearStoredMessages();
 
-    if(RenderDoc::Inst().IsReplayApp())
+    if(SanQiCapture::Inst().IsReplayApp())
     {
       m_pInfoQueue->SetMuteDebugOutput(false);
 
@@ -923,7 +923,7 @@ WrappedID3D12Device::~WrappedID3D12Device()
 
   SAFE_DELETE(m_StoredStructuredData);
 
-  RenderDoc::Inst().RemoveDeviceFrameCapturer((ID3D12Device *)this);
+  SanQiCapture::Inst().RemoveDeviceFrameCapturer((ID3D12Device *)this);
 
   if(!m_InternalCmds.pendingcmds.empty())
     ExecuteLists(m_Queue);
@@ -1016,7 +1016,7 @@ WrappedID3D12Device::~WrappedID3D12Device()
   SAFE_RELEASE(m_ReplayNVAPI);
   SAFE_RELEASE(m_ReplayAGS);
 
-  RenderDoc::Inst().UnregisterMemoryRegion(this);
+  SanQiCapture::Inst().UnregisterMemoryRegion(this);
 }
 
 WrappedID3D12Device *WrappedID3D12Device::Create(ID3D12Device *realDevice, D3D12InitParams params,
@@ -1038,7 +1038,7 @@ WrappedID3D12Device *WrappedID3D12Device::Create(ID3D12Device *realDevice, D3D12
 
 HRESULT WrappedID3D12Device::QueryInterface(REFIID riid, void **ppvObject)
 {
-  // RenderDoc UUID {A7AA6116-9C8D-4BBA-9083-B4D816B71B78}
+  // SanQi Capture UUID {A7AA6116-9C8D-4BBA-9083-B4D816B71B78}
   static const GUID IRenderDoc_uuid = {
       0xa7aa6116, 0x9c8d, 0x4bba, {0x90, 0x83, 0xb4, 0xd8, 0x16, 0xb7, 0x1b, 0x78}};
 
@@ -1714,7 +1714,7 @@ void WrappedID3D12Device::AddCaptureSubmission()
     // 15 is quite a lot of submissions.
     const int expectedMaxSubmissions = 15;
 
-    RenderDoc::Inst().SetProgress(CaptureProgress::FrameCapture,
+    SanQiCapture::Inst().SetProgress(CaptureProgress::FrameCapture,
                                   FakeProgress(m_SubmitCounter, expectedMaxSubmissions));
     m_SubmitCounter++;
   }
@@ -1741,9 +1741,9 @@ void WrappedID3D12Device::CheckForDeath()
 void WrappedID3D12Device::FirstFrame(IDXGISwapper *swapper)
 {
   // if we have to capture the first frame, begin capturing immediately
-  if(IsBackgroundCapturing(m_State) && RenderDoc::Inst().ShouldTriggerCapture(0))
+  if(IsBackgroundCapturing(m_State) && SanQiCapture::Inst().ShouldTriggerCapture(0))
   {
-    RenderDoc::Inst().StartFrameCapture(
+    SanQiCapture::Inst().StartFrameCapture(
         DeviceOwnedWindow((ID3D12Device *)this, swapper ? swapper->GetHWND() : NULL));
 
     m_FirstFrameCapture = true;
@@ -2459,19 +2459,19 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
     return S_OK;
 
   if(IsBackgroundCapturing(m_State))
-    RenderDoc::Inst().Tick();
+    SanQiCapture::Inst().Tick();
 
   m_FrameCounter++;    // first present becomes frame #1, this function is at the end of the frame
 
   DeviceOwnedWindow devWnd((ID3D12Device *)this, swapper->GetHWND());
 
-  bool activeWindow = RenderDoc::Inst().IsActiveWindow(devWnd);
+  bool activeWindow = SanQiCapture::Inst().IsActiveWindow(devWnd);
 
   m_LastSwap = swapper;
 
   if(IsBackgroundCapturing(m_State))
   {
-    uint32_t overlay = RenderDoc::Inst().GetOverlayBits();
+    uint32_t overlay = SanQiCapture::Inst().GetOverlayBits();
 
     if(overlay & eRENDERDOC_Overlay_Enabled)
     {
@@ -2523,7 +2523,7 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
         list->OMSetRenderTargets(1, &rtv, FALSE, NULL);
 
         rdcstr overlayText =
-            RenderDoc::Inst().GetOverlayText(RDCDriver::D3D12, devWnd, m_FrameCounter, 0);
+            SanQiCapture::Inst().GetOverlayText(RDCDriver::D3D12, devWnd, m_FrameCounter, 0);
 
         if(D3D12_Debug_RT_Overlay() && m_UsedRT)
         {
@@ -2584,7 +2584,7 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
     }
   }
 
-  RenderDoc::Inst().AddActiveDriver(RDCDriver::D3D12, true);
+  SanQiCapture::Inst().AddActiveDriver(RDCDriver::D3D12, true);
 
   // serialise the present call, even for inactive windows
   if(IsActiveCapturing(m_State))
@@ -2609,7 +2609,7 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
     // first present to *any* window, even inactive, terminates frame 0
     if(m_FirstFrameCapture && IsActiveCapturing(m_State))
     {
-      RenderDoc::Inst().EndFrameCapture(
+      SanQiCapture::Inst().EndFrameCapture(
           DeviceOwnedWindow((ID3D12Device *)this, m_FirstFrameCaptureWindow));
       m_FirstFrameCaptureWindow = NULL;
       m_FirstFrameCapture = false;
@@ -2620,11 +2620,11 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
 
   // kill any current capture that isn't application defined
   if(IsActiveCapturing(m_State) && !m_AppControlledCapture)
-    RenderDoc::Inst().EndFrameCapture(devWnd);
+    SanQiCapture::Inst().EndFrameCapture(devWnd);
 
-  if(IsBackgroundCapturing(m_State) && RenderDoc::Inst().ShouldTriggerCapture(m_FrameCounter))
+  if(IsBackgroundCapturing(m_State) && SanQiCapture::Inst().ShouldTriggerCapture(m_FrameCounter))
   {
-    RenderDoc::Inst().StartFrameCapture(devWnd);
+    SanQiCapture::Inst().StartFrameCapture(devWnd);
 
     m_AppControlledCapture = false;
     m_CapturedFrames.back().frameNumber = m_FrameCounter;
@@ -2942,7 +2942,7 @@ bool WrappedID3D12Device::EndFrameCapture(DeviceOwnedWindow devWnd)
     GetWrapped(it->res)->FreeShadow();
 
   const uint32_t maxSize = 2048;
-  RenderDoc::FramePixels fp;
+  SanQiCapture::FramePixels fp;
 
   // gather backbuffer screenshot
   if(backbuffer != NULL)
@@ -3066,7 +3066,7 @@ bool WrappedID3D12Device::EndFrameCapture(DeviceOwnedWindow devWnd)
   }
 
   RDCFile *rdc =
-      RenderDoc::Inst().CreateRDC(RDCDriver::D3D12, m_CapturedFrames.back().frameNumber, fp);
+      SanQiCapture::Inst().CreateRDC(RDCDriver::D3D12, m_CapturedFrames.back().frameNumber, fp);
 
   StreamWriter *captureWriter = NULL;
 
@@ -3173,7 +3173,7 @@ bool WrappedID3D12Device::EndFrameCapture(DeviceOwnedWindow devWnd)
 
     for(auto it = recordlist.begin(); it != recordlist.end(); ++it)
     {
-      RenderDoc::Inst().SetProgress(CaptureProgress::SerialiseFrameContents, idx / num);
+      SanQiCapture::Inst().SetProgress(CaptureProgress::SerialiseFrameContents, idx / num);
       idx += 1.0f;
       it->second->Write(ser);
     }
@@ -3239,7 +3239,7 @@ bool WrappedID3D12Device::EndFrameCapture(DeviceOwnedWindow devWnd)
     }
   }
 
-  RenderDoc::Inst().FinishCaptureWriting(rdc, m_CapturedFrames.back().frameNumber);
+  SanQiCapture::Inst().FinishCaptureWriting(rdc, m_CapturedFrames.back().frameNumber);
 
   m_HeaderChunk->Delete();
   m_HeaderChunk = NULL;
@@ -3276,7 +3276,7 @@ bool WrappedID3D12Device::DiscardFrameCapture(DeviceOwnedWindow devWnd)
 
   RDCLOG("Discarding frame capture.");
 
-  RenderDoc::Inst().FinishCaptureWriting(NULL, m_CapturedFrames.back().frameNumber);
+  SanQiCapture::Inst().FinishCaptureWriting(NULL, m_CapturedFrames.back().frameNumber);
 
   m_CapturedFrames.pop_back();
 
@@ -4383,7 +4383,7 @@ WriteSerialiser &WrappedID3D12Device::GetThreadSerialiser()
   uint32_t flags = WriteSerialiser::ChunkDuration | WriteSerialiser::ChunkTimestamp |
                    WriteSerialiser::ChunkThreadID;
 
-  if(RenderDoc::Inst().GetCaptureOptions().captureCallstacks)
+  if(SanQiCapture::Inst().GetCaptureOptions().captureCallstacks)
     flags |= WriteSerialiser::ChunkCallstack;
 
   ser->SetChunkMetadataRecording(flags);
@@ -4773,7 +4773,7 @@ ID3D12GraphicsCommandListX *WrappedID3D12Device::GetInitialStateList()
     if(IsReplayMode(m_State))
     {
       D3D12MarkerRegion::Begin(initStateCurList,
-                               "!!!!RenderDoc Internal: ApplyInitialContents batched list");
+                               "!!!!SanQi Capture Internal: ApplyInitialContents batched list");
     }
   }
 
@@ -5308,7 +5308,7 @@ RDResult WrappedID3D12Device::ReadLogInitialisation(RDCFile *rdc, bool storeStru
 
     uint64_t offsetEnd = reader->GetOffset();
 
-    RenderDoc::Inst().SetProgress(LoadProgress::FileInitialRead,
+    SanQiCapture::Inst().SetProgress(LoadProgress::FileInitialRead,
                                   float(offsetEnd) / float(reader->GetSize()));
 
     if((SystemChunk)context == SystemChunk::CaptureScope)
@@ -5490,7 +5490,7 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
   if(!partial)
   {
     {
-      D3D12MarkerRegion apply(GetQueue(), "!!!!RenderDoc Internal: ApplyInitialContents");
+      D3D12MarkerRegion apply(GetQueue(), "!!!!SanQi Capture Internal: ApplyInitialContents");
       ApplyInitialContents();
     }
 
@@ -5516,7 +5516,7 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
   m_State = CaptureState::ActiveReplaying;
 
   D3D12MarkerRegion::Set(
-      GetQueue(), StringFormat::Fmt("!!!!RenderDoc Internal: RenderDoc Replay %d (%d): %u->%u",
+      GetQueue(), StringFormat::Fmt("!!!!SanQi Capture Internal: SanQi Capture Replay %d (%d): %u->%u",
                                     (int)replayType, (int)partial, startEventID, endEventID));
 
   if(!partial)
@@ -5615,7 +5615,7 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
     }
   }
 
-  D3D12MarkerRegion::Set(GetQueue(), "!!!!RenderDoc Internal: Done replay");
+  D3D12MarkerRegion::Set(GetQueue(), "!!!!SanQi Capture Internal: Done replay");
 
   // ensure all UAV writes have finished before subsequent work
   ID3D12GraphicsCommandList *list = GetNewList();

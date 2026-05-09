@@ -814,7 +814,7 @@ void WrappedVulkan::vkGetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice
     }
   }
 
-  // report features depending on extensions not supported in RenderDoc as not supported
+  // report features depending on extensions not supported in SanQi Capture as not supported
   VkPhysicalDeviceExtendedDynamicState3FeaturesEXT *dynState3 =
       (VkPhysicalDeviceExtendedDynamicState3FeaturesEXT *)FindNextStruct(
           pFeatures, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT);
@@ -871,7 +871,7 @@ void WrappedVulkan::vkGetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevi
 
   ClampPhysDevAPIVersion(&pProperties->properties, physicalDevice);
 
-  // Internal RenderDoc UUID for:
+  // Internal SanQi Capture UUID for:
   //
   // * Shader object binary, so we always get SPIR-V
   // * Optimal image layout, so we never get VK_HOST_IMAGE_COPY_MEMCPY_BIT
@@ -1228,10 +1228,10 @@ VkResult WrappedVulkan::vkGetPhysicalDeviceToolProperties(VkPhysicalDevice physi
 
   VkPhysicalDeviceToolProperties &props = *(pToolProperties + *pToolCount);
 
-  const rdcstr name = "RenderDoc"_lit;
+  const rdcstr name = "SanQi Capture"_lit;
   const rdcstr version = StringFormat::Fmt(
       "%s (%s)", FULL_VERSION_STRING, GitVersionHash[0] == 'N' ? "Unknown revision" : GitVersionHash);
-  const rdcstr description = "Debugging capture layer for RenderDoc"_lit;
+  const rdcstr description = "Debugging capture layer for SanQi Capture"_lit;
 
   RDCASSERTMSG("Name is too long for VkPhysicalDeviceToolProperties",
                name.length() < sizeof(props.name));
@@ -1385,7 +1385,7 @@ void WrappedVulkan::vkGetImageSubresourceLayout2(VkDevice device, VkImage image,
 {
   ObjDisp(device)->GetImageSubresourceLayout2(Unwrap(device), Unwrap(image), pSubresource, pLayout);
 
-  // RenderDoc removes calls with VK_HOST_IMAGE_COPY_MEMCPY_BIT flag, so the
+  // SanQi Capture removes calls with VK_HOST_IMAGE_COPY_MEMCPY_BIT flag, so the
   // VkSubresourceHostMemcpySize struct chained to VkSubresourceLayout2 is overriden to
   // provide a fixed size.
   VkSubresourceHostMemcpySize *memcpySize = (VkSubresourceHostMemcpySize *)FindNextStruct(
@@ -1407,7 +1407,7 @@ void WrappedVulkan::vkGetImageSubresourceLayout2EXT(VkDevice device, VkImage ima
 {
   ObjDisp(device)->GetImageSubresourceLayout2(Unwrap(device), Unwrap(image), pSubresource, pLayout);
 
-  // RenderDoc removes calls with VK_HOST_IMAGE_COPY_MEMCPY_BIT flag, so the
+  // SanQi Capture removes calls with VK_HOST_IMAGE_COPY_MEMCPY_BIT flag, so the
   // VkSubresourceHostMemcpySize struct chained to VkSubresourceLayout2 is overriden to
   // provide a fixed size.
   VkSubresourceHostMemcpySize *memcpySize = (VkSubresourceHostMemcpySize *)FindNextStruct(

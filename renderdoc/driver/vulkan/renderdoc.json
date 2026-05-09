@@ -1,19 +1,19 @@
 {
   "file_format_version" : "1.1.2",
   "layer" : {
-    "name": "VK_LAYER_RENDERDOC_Capture",
+    "name": "VK_LAYER_CAPTURE",
     "type": "GLOBAL",
     "library_path": "@VULKAN_LAYER_MODULE_PATH@",
     "api_version": "1.4.324",
     "implementation_version": "@RENDERDOC_VERSION_MINOR@",
-    "description": "Debugging capture layer for RenderDoc",
+    "description": "Debugging capture layer",
     "functions": {
-      "vkGetInstanceProcAddr": "VK_LAYER_RENDERDOC_CaptureGetInstanceProcAddr",
-      "vkGetDeviceProcAddr": "VK_LAYER_RENDERDOC_CaptureGetDeviceProcAddr",
-      "vkNegotiateLoaderLayerInterfaceVersion": "VK_LAYER_RENDERDOC_CaptureNegotiateLoaderLayerInterfaceVersion"
+      "vkGetInstanceProcAddr": "VK_LAYER_CAPTUREGetInstanceProcAddr",
+      "vkGetDeviceProcAddr": "VK_LAYER_CAPTUREGetDeviceProcAddr",
+      "vkNegotiateLoaderLayerInterfaceVersion": "VK_LAYER_CAPTURENegotiateLoaderLayerInterfaceVersion"
     },
     "pre_instance_functions": {
-      "vkEnumerateInstanceExtensionProperties": "VK_LAYER_RENDERDOC_CaptureEnumerateInstanceExtensionProperties"
+      "vkEnumerateInstanceExtensionProperties": "VK_LAYER_CAPTUREEnumerateInstanceExtensionProperties"
     },
     "instance_extensions": [
       {
@@ -42,7 +42,7 @@
       "@VULKAN_ENABLE_VAR@": "1"
     },
     "disable_environment": {
-      "DISABLE_VULKAN_RENDERDOC_CAPTURE_@RENDERDOC_VERSION_MAJOR@_@RENDERDOC_VERSION_MINOR@": "1"
+      "DISABLE_VULKAN_CAPTURE_@RENDERDOC_VERSION_MAJOR@_@RENDERDOC_VERSION_MINOR@": "1"
     }
   }
 }

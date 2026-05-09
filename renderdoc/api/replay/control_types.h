@@ -949,7 +949,7 @@ struct NewCaptureData
   DOCUMENT(R"(The API used for this capture, if available.
 
 .. note::
-  May be empty if running with an older version of RenderDoc
+  May be empty if running with an older version of SanQi Capture
 
 :type: str
 )");
@@ -1284,7 +1284,7 @@ that may be contained in the capture.
 
 The default is not to do any validation.
 
-.. note:: RenderDoc does not handle invalid API use in the general case so validation should still
+.. note::SanQiCapture does not handle invalid API use in the general case so validation should still
   be performed at runtime in your program for ground truth results.
 
 :type: bool

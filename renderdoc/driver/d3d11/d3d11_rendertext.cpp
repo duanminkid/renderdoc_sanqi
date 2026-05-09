@@ -52,7 +52,7 @@ static void InternalRef(ID3D11DeviceChild *child)
 
 D3D11TextRenderer::D3D11TextRenderer(WrappedID3D11Device *wrapper)
 {
-  RenderDoc::Inst().RegisterMemoryRegion(this, sizeof(D3D11TextRenderer));
+  SanQiCapture::Inst().RegisterMemoryRegion(this, sizeof(D3D11TextRenderer));
 
   m_pDevice = wrapper;
   m_pImmediateContext = m_pDevice->GetImmediateContext();
@@ -311,7 +311,7 @@ D3D11TextRenderer::~D3D11TextRenderer()
   SAFE_INTRELEASE(Layout);
   SAFE_INTRELEASE(FL9Buffer);
 
-  RenderDoc::Inst().UnregisterMemoryRegion(this);
+  SanQiCapture::Inst().UnregisterMemoryRegion(this);
 }
 
 void D3D11TextRenderer::SetOutputWindow(HWND w)
