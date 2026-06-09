@@ -136,7 +136,7 @@ rdcstr GetDynamicEmbeddedResource(int resource)
   if(it != g_ResourceCache.end())
     return it->second;
 
-  // Fallback for early calls before CacheSelfModuleHandle (shouldn't happen)
+  // Fallback: resolve module handle directly
   HMODULE mod = NULL;
   GetModuleHandleExA(
       GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -267,7 +267,7 @@ void GetExecutableFilename(rdcstr &selfName)
 void GetLibraryFilename(rdcstr &selfName)
 {
   wchar_t curFile[512] = {0};
-  GetModuleFileNameW(GetModuleHandleA(STRINGIZE(RDOC_BASE_NAME) ".dll"), curFile, 511);
+  GetModuleFileNameW(GetCachedSelfModuleHandle(), curFile, 511);
 
   selfName = StringFormat::Wide2UTF8(curFile);
 }

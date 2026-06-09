@@ -7,7 +7,7 @@
 import re
 import pathlib
 
-ROOT = pathlib.Path("E:/work/renderdoc_sanqi")
+ROOT = pathlib.Path("E:/work/sqcap_src")
 INCLUDE_EXTS = {'.cpp', '.h', '.c', '.hpp'}
 EXCLUDE_DIRS = {'x64', 'x86', 'Debug', 'Release', '3rdparty', '.git', '__pycache__'}
 EXCLUDE_FILES = {'strip_renderdoc_signatures.py', 'fix_cpp_classnames.py'}

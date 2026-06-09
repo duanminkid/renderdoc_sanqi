@@ -23,6 +23,7 @@
  ******************************************************************************/
 
 #include <stdio.h>
+#include <windows.h>
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDir>
@@ -182,21 +183,57 @@ void hideOption(QCommandLineOption &opt)
 
 int main(int argc, char *argv[])
 {
+  // 诊断宏：同时写C:\sqc_main.txt和OutputDebugString，确保诊断能到达
+  DWORD _sqcPid = GetCurrentProcessId();
+  #define SQC_MAIN_DIAG(msg)                                                                    \
+    do                                                                                          \
+    {                                                                                           \
+      char _dbuf[1024];                                                                         \
+      wsprintfA(_dbuf, "[SQC-MAIN] pid=%u %s\r\n", _sqcPid, msg);                           \
+      OutputDebugStringA(_dbuf);                                                                \
+      HANDLE _h = CreateFileA("C:\\sqc_main.txt", FILE_APPEND_DATA,                            \
+                              FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS,           \
+                              FILE_ATTRIBUTE_NORMAL, NULL);                                     \
+      if(_h != INVALID_HANDLE_VALUE)                                                            \
+      {                                                                                         \
+        DWORD _w;                                                                               \
+        WriteFile(_h, _dbuf, lstrlenA(_dbuf), &_w, NULL);                                      \
+        CloseHandle(_h);                                                                        \
+      }                                                                                         \
+    } while(0)
+
+  // 诊断：确认 main() 被调用 + 记录工作目录
+  {
+    char _cwd2[MAX_PATH] = {0};
+    GetCurrentDirectoryA(MAX_PATH, _cwd2);
+    char _db[1024];
+    wsprintfA(_db, "cwd=%s argc=%d", _cwd2, argc);
+    SQC_MAIN_DIAG(_db);
+  }
+
   // call this as the very first thing - no-op on other platforms, but on linux it means
   // XInitThreads will be called allowing driver access to xlib on multiple threads.
   QCoreApplication::setAttribute(Qt::AA_X11InitThreads);
 
-  qInstallMessageHandler(sharedLogOutput);
+  // 推迟安装消息处理器：避免在 RENDERDOC_InitialiseReplay 之前调用 RENDERDOC_LogMessage
+  // qInstallMessageHandler(sharedLogOutput);  // 移到后面
 
   // there seems to be a persistent crash in QWidgetPrivate::subtractOpaqueSiblings where a widget
   // has no parent but is not a window. Try to work around it by setting this env var, as it's only
   // an optimisation
   qputenv("QT_NO_SUBTRACTOPAQUESIBLINGS", lit("1").toUtf8());
 
-  qInfo() << "QRenderDoc initialising.";
-
+  // 管理员模式下 Qt 可能因 COM/UIPI 问题卡在平台插件初始化，
+  // 设置 QT_ACCESSIBILITY=0 绕过无障碍初始化（已知可解决部分 admin 卡死问题）
   if(IsRunningAsAdmin())
-    qInfo() << "Running as administrator";
+  {
+    qputenv("QT_ACCESSIBILITY", lit("0").toUtf8());
+  }
+
+  // 标记工具进程环境。QProcess 子进程会继承此变量，system_load.dll 的
+  // add_hooks() 检测到后跳过 hook/stealth 安装，避免子进程走全量反检测流程。
+  // 真正的捕获目标由 RunProcess() 在非 internal 启动时剥离该变量，不能继承。
+  qputenv("SQC_TOOL_ENV", lit("1").toUtf8());
 
 #if defined(RENDERDOC_PLATFORM_LINUX) && !defined(RENDERDOC_WINDOWING_WAYLAND)
   bool envChanged = false;
@@ -211,6 +248,7 @@ int main(int argc, char *argv[])
   }
 #endif
 
+  SQC_MAIN_DIAG("before HighDpi attrs");
   QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
   QGuiApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
 
@@ -220,6 +258,7 @@ int main(int argc, char *argv[])
 #endif
 
   QApplication::setApplicationVersion(lit(FULL_VERSION_STRING));
+  SQC_MAIN_DIAG("before QApplication ctor");
 
 // shortcut here so we can run this with a non-GUI application
 #if ENABLE_UNIT_TESTS
@@ -324,6 +363,18 @@ int main(int argc, char *argv[])
 
   QApplication application(argc, argv);
 
+  SQC_MAIN_DIAG("QApplication created OK");
+
+  // 现在安全安装消息处理器（Qt日志系统就绪后再转发给RenderDoc）
+  qInstallMessageHandler(sharedLogOutput);
+
+  qInfo() << "QRenderDoc initialising.";
+
+  if(IsRunningAsAdmin())
+  {
+    qInfo() << "Running as administrator";
+  }
+
   QCommandLineParser parser;
   parser.setApplicationDescription(tr("Qt UI for SanQi Capture"));
   QCommandLineOption helpOption = parser.addHelpOption();
@@ -376,6 +427,8 @@ int main(int argc, char *argv[])
   parser.addPositionalArgument(lit("filename"), tr("The file to open."));
 
   bool parsedCommands = parser.parse(application.arguments());
+
+  SQC_MAIN_DIAG("after QCommandLineParser");
 
   if(!parsedCommands)
     qCritical() << parser.errorText();
@@ -510,6 +563,8 @@ int main(int argc, char *argv[])
   {
     PersistantConfig config;
 
+    SQC_MAIN_DIAG("after PersistantConfig ctor");
+
     {
       QString configPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
       QDir dir(configPath);
@@ -520,14 +575,20 @@ int main(int argc, char *argv[])
 
     QString configFilename = ConfigFilePath(lit("UI.config"));
 
+    SQC_MAIN_DIAG("before config.Load");
+
     if(!config.Load(configFilename))
     {
+      SQC_MAIN_DIAG("config.Load FAILED, before RDDialog::critical");
+
       RDDialog::critical(
           NULL, CaptureContext::tr("Error loading config"),
           CaptureContext::tr(
               "Error loading config file\n%1\nA default config is loaded and will be saved out.")
               .arg(configFilename));
     }
+
+    SQC_MAIN_DIAG("after config.Load");
 
     int replayHostIndex = -1;
     if(parser.isSet(replayhost))
@@ -556,6 +617,8 @@ int main(int argc, char *argv[])
     else
       Analytics::Load();
 
+    SQC_MAIN_DIAG("after Analytics::Load");
+
     bool isDarkTheme = IsDarkTheme();
 
     bool styleSet = config.SetStyle();
@@ -571,6 +634,8 @@ int main(int argc, char *argv[])
     config.SetupFormatting();
 
     Resources::Initialise();
+
+    SQC_MAIN_DIAG("after Resources::Initialise");
 
     GUIInvoke::init();
 
@@ -602,6 +667,8 @@ int main(int argc, char *argv[])
       }
     }
 
+    SQC_MAIN_DIAG("after vkconfig check");
+
     {
       GlobalEnvironment env;
 #if defined(RENDERDOC_PLATFORM_LINUX)
@@ -631,7 +698,11 @@ int main(int argc, char *argv[])
       if(!crashReportPath.isEmpty())
         env.enumerateGPUs = false;
 
+      SQC_MAIN_DIAG("before RENDERDOC_InitialiseReplay");
+
       RENDERDOC_InitialiseReplay(env, coreargs);
+
+      SQC_MAIN_DIAG("after RENDERDOC_InitialiseReplay");
     }
 
 #if defined(RENDERDOC_PLATFORM_LINUX) && !defined(RENDERDOC_WINDOWING_WAYLAND)
@@ -668,7 +739,11 @@ int main(int argc, char *argv[])
         config.Save();
       }
 
+      SQC_MAIN_DIAG("before CaptureContext");
+
       CaptureContext ctx(config);
+
+      SQC_MAIN_DIAG("after CaptureContext");
       if(replayHostIndex >= 0)
       {
         ctx.SetRemoteHost(replayHostIndex);
@@ -751,7 +826,11 @@ int main(int argc, char *argv[])
 
       if(!pythonExited)
       {
+        SQC_MAIN_DIAG("before ctx.Begin");
+
         ctx.Begin(filename, remoteHost, remoteIdent, temp, uiscriptFile);
+
+        SQC_MAIN_DIAG("after ctx.Begin, entering event loop");
 
         while(ctx.isRunning())
         {

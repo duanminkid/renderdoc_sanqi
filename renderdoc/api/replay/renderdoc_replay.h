@@ -48,9 +48,21 @@
 // this #define can be used to mark a program as a 'replay' program which should not be captured.
 // Any program used for such purpose must define and export this symbol in the main exe or one dll
 // that will be loaded before renderdoc.dll is loaded.
-#define REPLAY_PROGRAM_MARKER()                                                 \
-  extern "C" RENDERDOC_EXPORT_API void RENDERDOC_CC renderdoc__replay__marker() \
-  {                                                                             \
+// The export name is built from RDOC_BASE_NAME (defined via vcxproj, e.g. "system_load") so
+// it stays in sync with LibraryHooks::Detect in win32_libentry.cpp.
+//
+// MSVC traditional preprocessor (no /Zc:preprocessor) does NOT expand macros adjacent
+// to ## operator. The two-level RDOC_CONCAT indirection forces RDOC_BASE_NAME to be
+// expanded BEFORE token-pasting by passing it through an extra macro layer where it is
+// not adjacent to ##, producing the correct export name (e.g. system_load__replay__marker).
+#ifndef RDOC_BASE_NAME
+#define RDOC_BASE_NAME renderdoc
+#endif
+#define RDOC_CONCAT_DIRECT(a, b) a ## b
+#define RDOC_CONCAT(a, b) RDOC_CONCAT_DIRECT(a, b)
+#define REPLAY_PROGRAM_MARKER()                                                       \
+  extern "C" RENDERDOC_EXPORT_API void RENDERDOC_CC RDOC_CONCAT(RDOC_BASE_NAME, __replay__marker)() \
+  {                                                                                   \
   }
 // declare ResourceId extremely early so that it can be referenced in structured_data.h
 

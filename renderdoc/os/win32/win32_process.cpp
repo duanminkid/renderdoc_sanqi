@@ -37,10 +37,22 @@
 
 #include <string>
 
-// PEB-unlink-safe self-handle lookup. Cached in DllMain before stealth is applied.
-static HMODULE GetSelfDllHandle()
+// Write diagnostic message to OutputDebugString and %TEMP%\sqc_inject_diag.txt
+static void SqcDiagLog(const char *msg)
 {
-  return GetCachedSelfModuleHandle();
+  OutputDebugStringA(msg);
+  wchar_t tmpPath[MAX_PATH];
+  GetTempPathW(MAX_PATH, tmpPath);
+  wcscat_s(tmpPath, L"sqc_inject_diag.txt");
+  HANDLE hf = CreateFileW(tmpPath, FILE_APPEND_DATA,
+                          FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                          OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if(hf != INVALID_HANDLE_VALUE)
+  {
+    DWORD w;
+    WriteFile(hf, msg, (DWORD)lstrlenA(msg), &w, NULL);
+    CloseHandle(hf);
+  }
 }
 
 // NtCreateThreadEx: undocumented NT API (kept for future use)
@@ -264,7 +276,9 @@ extern "C" __declspec(dllexport) void __cdecl INTERNAL_ApplyEnvMods(void *ignore
   Process::ApplyEnvironmentModification();
 }
 
-void InjectDLL(HANDLE hProcess, rdcwstr libName)
+static const DWORD InjectRemoteThreadTimeoutMS = 10000;
+
+bool InjectDLL(HANDLE hProcess, rdcwstr libName)
 {
   wchar_t dllPath[MAX_PATH + 1] = {0};
   wcscpy_s(dllPath, libName.c_str());
@@ -274,9 +288,10 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
   if(kernel32 == NULL)
   {
     RDCERR("Couldn't get handle for kernel32.dll");
-    return;
+    return false;
   }
 
+  bool ret = false;
   void *remoteMem =
       VirtualAllocEx(hProcess, NULL, sizeof(dllPath), MEM_COMMIT, PAGE_READWRITE);
   if(remoteMem)
@@ -289,24 +304,24 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
           (LPTHREAD_START_ROUTINE)GetProcAddress(kernel32, "LoadLibraryW"), remoteMem, 0, NULL);
       if(hThread)
       {
-        WaitForSingleObject(hThread, INFINITE);
+        DWORD waitRet = WaitForSingleObject(hThread, InjectRemoteThreadTimeoutMS);
+        if(waitRet != WAIT_OBJECT_0)
+        {
+          RDCERR("Timed out waiting for remote LoadLibraryW thread, wait result: %u, err: %u",
+                 waitRet, GetLastError());
+          CloseHandle(hThread);
+          return false;
+        }
+
         DWORD threadExitCode = 0;
         GetExitCodeThread(hThread, &threadExitCode);
         CloseHandle(hThread);
         // Log LoadLibraryW result (exit code = HMODULE, 0 means failure)
         char diagBuf[256];
-        wsprintfA(diagBuf, "[SQC-DIAG] InjectDLL: LoadLibraryW exitCode(HMODULE)=0x%X err=%u\r\n",
-                  threadExitCode, GetLastError());
-        OutputDebugStringA(diagBuf);
-        HANDLE hf = CreateFileA("C:\\sqc_inject_diag.txt", FILE_APPEND_DATA,
-                                FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS,
-                                FILE_ATTRIBUTE_NORMAL, NULL);
-        if(hf != INVALID_HANDLE_VALUE)
-        {
-          DWORD w;
-          WriteFile(hf, diagBuf, (DWORD)lstrlenA(diagBuf), &w, NULL);
-          CloseHandle(hf);
-        }
+        wsprintfA(diagBuf, "[SQC-DIAG] InjectDLL: tick=%u LoadLibraryW exitCode(HMODULE)=0x%X err=%u\r\n",
+                  GetTickCount(), threadExitCode, GetLastError());
+        SqcDiagLog(diagBuf);
+        ret = (threadExitCode != 0);
       }
       else
       {
@@ -325,6 +340,8 @@ void InjectDLL(HANDLE hProcess, rdcwstr libName)
   {
     RDCERR("Couldn't allocate remote memory for DLL '%ls': %u", libName.c_str(), GetLastError());
   }
+
+  return ret;
 }
 
 uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName)
@@ -429,23 +446,30 @@ uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName)
   return ret;
 }
 
-void InjectFunctionCall(HANDLE hProcess, uintptr_t renderdoc_remote, const char *funcName,
+bool InjectFunctionCall(HANDLE hProcess, uintptr_t renderdoc_remote, const char *funcName,
                         void *data, const size_t dataLen)
 {
   if(dataLen == 0)
   {
     RDCERR("Invalid function call injection attempt");
-    return;
+    return false;
   }
 
   RDCDEBUG("Injecting call to %s", funcName);
 
-  HMODULE renderdoc_local = GetSelfDllHandle();
+  HMODULE renderdoc_local = GetCachedSelfModuleHandle();
+  if(renderdoc_local == NULL)
+  {
+    RDCERR("Couldn't get cached local module handle for injected call to %s", funcName);
+    return false;
+  }
 
-  // Use cached proc address (safe after PE header wipe by ApplyModuleStealth)
-  uintptr_t func_local = GetCachedProcAddress(funcName);
+  uintptr_t func_local = (uintptr_t)GetProcAddress(renderdoc_local, funcName);
   if(func_local == 0)
-    func_local = (uintptr_t)GetProcAddress(renderdoc_local, funcName);
+  {
+    RDCERR("Couldn't find local function %s for injected call", funcName);
+    return false;
+  }
 
   // we've found SetCaptureOptions in our local instance of the module, now calculate the offset and
   // so get the function
@@ -453,17 +477,49 @@ void InjectFunctionCall(HANDLE hProcess, uintptr_t renderdoc_remote, const char 
   uintptr_t func_remote = func_local + renderdoc_remote - (uintptr_t)renderdoc_local;
 
   void *remoteMem = VirtualAllocEx(hProcess, NULL, dataLen, MEM_COMMIT, PAGE_READWRITE);
+  if(remoteMem == NULL)
+  {
+    RDCERR("Couldn't allocate remote memory for injected call to %s: %u", funcName, GetLastError());
+    return false;
+  }
+
   SIZE_T numWritten;
-  WriteProcessMemory(hProcess, remoteMem, data, dataLen, &numWritten);
+  if(!WriteProcessMemory(hProcess, remoteMem, data, dataLen, &numWritten) || numWritten != dataLen)
+  {
+    RDCERR("Couldn't write remote memory for injected call to %s: %u", funcName, GetLastError());
+    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+    return false;
+  }
 
   HANDLE hThread =
       CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)func_remote, remoteMem, 0, NULL);
-  WaitForSingleObject(hThread, INFINITE);
+  if(hThread == NULL)
+  {
+    RDCERR("Couldn't create remote thread for injected call to %s: %u", funcName, GetLastError());
+    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+    return false;
+  }
 
-  ReadProcessMemory(hProcess, remoteMem, data, dataLen, &numWritten);
+  DWORD waitRet = WaitForSingleObject(hThread, InjectRemoteThreadTimeoutMS);
+  if(waitRet != WAIT_OBJECT_0)
+  {
+    RDCERR("Timed out waiting for injected call to %s, wait result: %u, err: %u", funcName,
+           waitRet, GetLastError());
+    CloseHandle(hThread);
+    return false;
+  }
+
+  if(!ReadProcessMemory(hProcess, remoteMem, data, dataLen, &numWritten) || numWritten != dataLen)
+  {
+    RDCERR("Couldn't read remote memory for injected call to %s: %u", funcName, GetLastError());
+    CloseHandle(hThread);
+    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+    return false;
+  }
 
   CloseHandle(hThread);
   VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+  return true;
 }
 
 static PROCESS_INFORMATION RunProcess(const rdcstr &app, const rdcstr &workingDir,
@@ -562,13 +618,17 @@ static PROCESS_INFORMATION RunProcess(const rdcstr &app, const rdcstr &workingDi
   // turn environment string to a UTF-8 map
   std::wstring envString;
 
-  if(!env.empty())
+  if(!env.empty() || !internal)
   {
     LPWCH envStrings = GetEnvironmentStringsW();
     EnvMap envValues = EnvStringToEnvMap(envStrings);
     FreeEnvironmentStringsW(envStrings);
 
-    ApplyEnvModifications(envValues, env, false);
+    if(!internal)
+      envValues.erase("SQC_TOOL_ENV");
+
+    if(!env.empty())
+      ApplyEnvModifications(envValues, env, false);
 
     for(auto it = envValues.begin(); it != envValues.end(); ++it)
     {
@@ -584,6 +644,16 @@ static PROCESS_INFORMATION RunProcess(const rdcstr &app, const rdcstr &workingDi
       envString.empty() ? NULL : (void *)envString.data(), workdir.c_str(), &si, &pi);
 
   DWORD err = GetLastError();
+
+  if(retValue)
+  {
+    // diagnostic: log CreateProcessW success
+    char diagBuf[512];
+    wsprintfA(diagBuf,
+              "[SQC-DIAG] RunProcess SUCCESS: tick=%u pid=%u app='%s' workdir='%s'\r\n",
+              GetTickCount(), pi.dwProcessId, app.c_str(), workingDir.c_str());
+    SqcDiagLog(diagBuf);
+  }
 
   if(phChildStdOutput_Rd)
   {
@@ -602,19 +672,10 @@ static PROCESS_INFORMATION RunProcess(const rdcstr &app, const rdcstr &workingDi
     {
       char diagBuf[512];
       wsprintfA(diagBuf,
-                "[SQC-DIAG] RunProcess FAILED: app='%s' workdir='%s' err=%u "
+                "[SQC-DIAG] RunProcess FAILED: tick=%u app='%s' workdir='%s' err=%u "
                 "(0x%08X)\r\n",
-                app.c_str(), workingDir.c_str(), err, err);
-      OutputDebugStringA(diagBuf);
-      HANDLE hf = CreateFileA("C:\\sqc_inject_diag.txt", FILE_APPEND_DATA,
-                              FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-      if(hf != INVALID_HANDLE_VALUE)
-      {
-        DWORD w;
-        WriteFile(hf, diagBuf, (DWORD)lstrlenA(diagBuf), &w, NULL);
-        CloseHandle(hf);
-      }
+                GetTickCount(), app.c_str(), workingDir.c_str(), err, err);
+      SqcDiagLog(diagBuf);
     }
 
     CloseHandle(pi.hProcess);
@@ -623,6 +684,23 @@ static PROCESS_INFORMATION RunProcess(const rdcstr &app, const rdcstr &workingDi
   }
 
   return pi;
+}
+
+static bool IsBlockedInjectionProcessName(const rdcstr &processName)
+{
+  rdcstr basename = strlower(get_basename(processName));
+  return basename == "unitycrashhandler64.exe" || basename == "unitycrashhandler64";
+}
+
+static bool IsBlockedInjectionProcess(HANDLE hProcess)
+{
+  wchar_t imagePath[32768] = {};
+  DWORD size = _countof(imagePath);
+
+  if(QueryFullProcessImageNameW(hProcess, 0, imagePath, &size))
+    return IsBlockedInjectionProcessName(StringFormat::Wide2UTF8(imagePath));
+
+  return false;
 }
 
 rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
@@ -636,6 +714,15 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
       OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION |
                       PROCESS_VM_WRITE | PROCESS_VM_READ | SYNCHRONIZE,
                   FALSE, pid);
+
+  if(hProcess && IsBlockedInjectionProcess(hProcess))
+  {
+    RDResult result;
+    SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                     "Skipping injection into Unity crash handler process.");
+    CloseHandle(hProcess);
+    return {result, 0};
+  }
 
   if(opts.delayForDebugger > 0)
   {
@@ -661,31 +748,17 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
       RDCDEBUG("Timed out waiting for debugger, gave up after %u s", opts.delayForDebugger);
   }
 
-  RDCLOG("Injecting renderdoc into process %lu", pid);
+  RDCLOG("Injecting sqcap library into process %lu", pid);
 
   wchar_t renderdocPath[MAX_PATH] = {0};
-  // Use cached path (safe after PEB unlink invalidates GetModuleFileNameW)
-  const wchar_t *cachedPath = GetCachedSelfModulePath();
-  if(cachedPath && cachedPath[0])
-    wcscpy_s(renderdocPath, cachedPath);
-  else
-    GetModuleFileNameW(GetSelfDllHandle(), &renderdocPath[0], MAX_PATH - 1);
+  GetModuleFileNameW(GetCachedSelfModuleHandle(), &renderdocPath[0], MAX_PATH - 1);
 
-  // Diagnose if GetModuleFileNameW failed after PEB unlink
+  // Diagnose injector path resolution
   {
     char diagBuf[512];
-    wsprintfA(diagBuf, "[SQC-DIAG] InjectIntoProcess: renderdocPath='%ls' err=%u\r\n",
-              renderdocPath, GetLastError());
-    OutputDebugStringA(diagBuf);
-    HANDLE hf = CreateFileA("C:\\sqc_inject_diag.txt", FILE_APPEND_DATA,
-                            FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS,
-                            FILE_ATTRIBUTE_NORMAL, NULL);
-    if(hf != INVALID_HANDLE_VALUE)
-    {
-      DWORD w;
-      WriteFile(hf, diagBuf, (DWORD)lstrlenA(diagBuf), &w, NULL);
-      CloseHandle(hf);
-    }
+    wsprintfA(diagBuf, "[SQC-DIAG] InjectIntoProcess: tick=%u sqcapPath='%ls' err=%u\r\n",
+              GetTickCount(), renderdocPath, GetLastError());
+    SqcDiagLog(diagBuf);
   }
 
   wchar_t renderdocPathLower[MAX_PATH] = {0};
@@ -1045,13 +1118,19 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
     return {ResultCode::Succeeded, (uint32_t)exitCode};
   }
 
-  InjectDLL(hProcess, renderdocPath);
-
   const char *rdoc_dll = STRINGIZE(RDOC_BASE_NAME);
 
-  uintptr_t loc = FindRemoteDLL(pid, STRINGIZE(RDOC_BASE_NAME) ".dll");
-
   rdcpair<RDResult, uint32_t> result = {ResultCode::Succeeded, 0};
+
+  if(!InjectDLL(hProcess, renderdocPath))
+  {
+    SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
+                     "Timed out or failed loading %s.dll into process.", rdoc_dll);
+    CloseHandle(hProcess);
+    return result;
+  }
+
+  uintptr_t loc = FindRemoteDLL(pid, STRINGIZE(RDOC_BASE_NAME) ".dll");
 
   if(loc == 0)
   {
@@ -1064,23 +1143,27 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
   else
   {
     // safe to cast away the const as we know these functions don't modify the parameters
+    bool setupOK = true;
 
     if(!capturefile.empty())
-      InjectFunctionCall(hProcess, loc, "INTERNAL_SetCaptureFile", (void *)capturefile.c_str(),
-                         capturefile.size() + 1);
+      setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_SetCaptureFile",
+                                   (void *)capturefile.c_str(), capturefile.size() + 1);
 
     rdcstr debugLogfile = RDCGETLOGFILE();
 
-    InjectFunctionCall(hProcess, loc, "INTERNAL_SetDebugLogFile", (void *)debugLogfile.c_str(),
-                       debugLogfile.size() + 1);
+    if(setupOK)
+      setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_SetDebugLogFile",
+                                   (void *)debugLogfile.c_str(), debugLogfile.size() + 1);
 
-    InjectFunctionCall(hProcess, loc, "INTERNAL_SetCaptureOptions", (CaptureOptions *)&opts,
-                       sizeof(CaptureOptions));
+    if(setupOK)
+      setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_SetCaptureOptions",
+                                   (CaptureOptions *)&opts, sizeof(CaptureOptions));
 
-    InjectFunctionCall(hProcess, loc, "INTERNAL_GetTargetControlIdent", &result.second,
-                       sizeof(result.second));
+    if(setupOK)
+      setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_GetTargetControlIdent", &result.second,
+                                   sizeof(result.second));
 
-    if(!env.empty())
+    if(setupOK && !env.empty())
     {
       for(const EnvironmentModification &e : env)
       {
@@ -1092,17 +1175,36 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
         if(name == "")
           break;
 
-        InjectFunctionCall(hProcess, loc, "INTERNAL_EnvModName", (void *)name.c_str(),
-                           name.size() + 1);
-        InjectFunctionCall(hProcess, loc, "INTERNAL_EnvModValue", (void *)value.c_str(),
-                           value.size() + 1);
-        InjectFunctionCall(hProcess, loc, "INTERNAL_EnvSep", &sep, sizeof(sep));
-        InjectFunctionCall(hProcess, loc, "INTERNAL_EnvMod", &mod, sizeof(mod));
+        setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_EnvModName", (void *)name.c_str(),
+                                     name.size() + 1);
+        if(setupOK)
+          setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_EnvModValue",
+                                       (void *)value.c_str(), value.size() + 1);
+        if(setupOK)
+          setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_EnvSep", &sep, sizeof(sep));
+        if(setupOK)
+          setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_EnvMod", &mod, sizeof(mod));
+        if(!setupOK)
+          break;
       }
 
       // parameter is unused
       void *dummy = NULL;
-      InjectFunctionCall(hProcess, loc, "INTERNAL_ApplyEnvMods", &dummy, sizeof(dummy));
+      if(setupOK)
+        setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_ApplyEnvMods", &dummy,
+                                     sizeof(dummy));
+    }
+
+    if(!setupOK)
+    {
+      SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
+                       "Timed out or failed configuring injected %s.dll.", rdoc_dll);
+      result.second = 0;
+    }
+    else if(result.second == 0)
+    {
+      SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
+                       "Injected %s.dll did not report a target control connection.", rdoc_dll);
     }
   }
 
@@ -1205,26 +1307,24 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     const rdcarray<EnvironmentModification> &env, const rdcstr &capturefile,
     const CaptureOptions &opts, bool waitForExit)
 {
-  HMODULE selfHandle = GetSelfDllHandle();
-  // Use cached proc address (safe after PE header wipe by ApplyModuleStealth)
+  // Try cached proc address first (survives PE header wipe after stealth injection).
+  // Tool processes (qrenderdoc etc.) skip CacheSelfModuleHandle in DllMain, so cache
+  // may be empty — fall back to direct GetProcAddress which works when PE is intact.
   void *func = (void *)GetCachedProcAddress("INTERNAL_SetCaptureFile");
-  if(func == NULL)
-    func = GetProcAddress(selfHandle, "INTERNAL_SetCaptureFile");
 
-  // diagnostic: log handle and export lookup result
+  if(func == NULL)
+  {
+    HMODULE mod = GetModuleHandleA(STRINGIZE(RDOC_BASE_NAME) ".dll");
+    if(mod)
+      func = (void *)GetProcAddress(mod, "INTERNAL_SetCaptureFile");
+  }
+
+  // diagnostic: log export lookup result
   {
     char diagBuf[256];
-    wsprintfA(diagBuf, "[SQC-DIAG] LaunchAndInject: selfHandle=%p func=%p\r\n", selfHandle, func);
-    OutputDebugStringA(diagBuf);
-    HANDLE hf = CreateFileA("C:\\sqc_inject_diag.txt", FILE_APPEND_DATA,
-                            FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-                            OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if(hf != INVALID_HANDLE_VALUE)
-    {
-      DWORD w;
-      WriteFile(hf, diagBuf, (DWORD)lstrlenA(diagBuf), &w, NULL);
-      CloseHandle(hf);
-    }
+    wsprintfA(diagBuf, "[SQC-DIAG] LaunchAndInject: tick=%u func=%p\r\n",
+              GetTickCount(), func);
+    SqcDiagLog(diagBuf);
   }
 
   if(func == NULL)
@@ -1245,6 +1345,14 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
         "For safety reasons SanQi Capture does not support capturing executables with a "
         "reserved system filename such as '%s'. Please rename your executable to capture.",
         get_basename(app).c_str());
+    return {result, 0};
+  }
+
+  if(IsBlockedInjectionProcessName(app))
+  {
+    RDResult result;
+    SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                     "Skipping injection into Unity crash handler process.");
     return {result, 0};
   }
 
@@ -1595,13 +1703,15 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
   rdcstr cmdpathNative = renderdocPath + "\\sanqicapture.exe";
   rdcstr cmdpathWow32;
 
-  rdcstr shimpathNative = renderdocPath;
+  rdcstr shimpathNative =
+  #if ENABLED(RDOC_X64)
+      renderdocPath + "\\system_shim64.dll";
+  #else
+      renderdocPath + "\\system_shim32.dll";
+  #endif
   rdcstr shimpathWow32;
 
 #if ENABLED(RDOC_X64)
-
-  // native shim is just system_shim64.dll
-  shimpathNative = renderdocPath + "\\system_shim64.dll";
 
   // if it looks like we're in the development environment, look for the alternate bitness in the
   // corresponding folder
@@ -1635,7 +1745,7 @@ RDResult Process::StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capture
 
 #else
 
-  // nothing fancy to do here for 32-bit, just point the shim next to our dll.
+  // nothing fancy to do here for 32-bit
   shimpathNative = renderdocPath + "\\system_shim32.dll";
 
 #endif

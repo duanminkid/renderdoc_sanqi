@@ -491,7 +491,7 @@ static bool InitDbgHelp()
   else
   {
     wchar_t path[MAX_PATH] = {0};
-    GetModuleFileNameW(GetModuleHandleA(STRINGIZE(RDOC_BASE_NAME) ".dll"), path, MAX_PATH - 1);
+    GetModuleFileNameW(GetCachedSelfModuleHandle(), path, MAX_PATH - 1);
 
     wchar_t *slash = wcsrchr(path, '\\');
 

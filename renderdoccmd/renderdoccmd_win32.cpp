@@ -776,7 +776,6 @@ private:
   std::string capfile;
   std::string debuglog;
   std::string opts;
-
 public:
   GlobalHookCommand() {}
   virtual void AddOptions(cmdline::parser &parser)

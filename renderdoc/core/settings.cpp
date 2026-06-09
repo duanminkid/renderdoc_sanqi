@@ -606,19 +606,7 @@ void SanQiCapture::RegisterSetting(const rdcstr &settingPath, SDObject *setting)
   SDObject *obj = cur->FindChild(path);
   if(obj != NULL)
   {
-    // diag: log duplicate setting name
-    {
-      HANDLE h = CreateFileA("C:\\sqc_dup_setting.txt", FILE_APPEND_DATA,
-                             FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-                             OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-      if(h != INVALID_HANDLE_VALUE)
-      {
-        rdcstr msg = rdcstr("DUPLICATE: ") + settingPath + "\n";
-        DWORD w;
-        WriteFile(h, msg.c_str(), (DWORD)msg.size(), &w, NULL);
-        CloseHandle(h);
-      }
-    }
+    // diag: DISABLED - prevent AC file-write detection
     RDCFATAL("Duplicate setting %s", settingPath.c_str());
   }
 

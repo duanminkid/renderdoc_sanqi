@@ -76,7 +76,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>precompiled.h</PrecompiledHeaderFile>
       <ForcedIncludeFiles>precompiled.h</ForcedIncludeFiles>
-      <AdditionalOptions>/w44062 /w44840 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/utf-8 /w44062 /w44840 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -87,14 +87,8 @@
     <PostBuildEvent>
       <Command>echo === Stripping signatures from $(TargetFileName) ===
 py "$(ProjectDir)strip_exports.py" "$(OutDir)$(TargetFileName)"
-echo === Creating d3d11_proxy.dll (copy + strip) ===
-if exist "$(OutDir)d3d11_proxy.dll.bak" del /Q "$(OutDir)d3d11_proxy.dll.bak"
-copy /Y "$(OutDir)$(TargetFileName)" "$(OutDir)d3d11_proxy.dll.bak"
-copy /Y "$(OutDir)d3d11_proxy.dll.bak" "$(OutDir)d3d11_proxy.dll"
-py "$(ProjectDir)strip_exports.py" "$(OutDir)d3d11_proxy.dll"
-del /Q "$(OutDir)d3d11_proxy.dll.bak"
-echo === Done: $(TargetFileName) (UI, full exports) + d3d11_proxy.dll (injection, signatures stripped) ===</Command>
-      <Message>Building dual DLLs: system_load.dll (full) + d3d11_proxy.dll (patched)</Message>
+echo === Done ===</Command>
+      <Message>Stripping renderdoc signatures from $(TargetFileName)</Message>
     </PostBuildEvent>
     <ProjectReference>
       <UseLibraryDependencyInputs>true</UseLibraryDependencyInputs>

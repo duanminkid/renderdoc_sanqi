@@ -210,7 +210,8 @@ replacements = [
     (b'SanQi Capture', b'SqTechCaptlib'),
 
     # Source/build paths
-    (b'renderdoc_sanqi', b'sqcap_lib_src__'),  # 15 bytes
+    # sqcap_src -> null out source folder name in __FILE__ embedded paths
+    (b'sqcap_src', b'\x00' * 9),  # 9 bytes -> null in embedded paths
     (b'renderdoc\\',     b'sqcaptlib\\'),        # 10 bytes
     (b'renderdoc/',      b'sqcaptlib/'),         # 10 bytes
 
@@ -229,12 +230,11 @@ replacements = [
 
     # =========================================================
     # PHASE 6b: system_load DLL name fingerprints
-    # Only replace the __replay__marker pattern which is a renderdoc-specific symbol name
-    # Do NOT replace "system_load.dll" or "system_load" - these are just the DLL name,
-    # not renderdoc fingerprints, and replacing them breaks GetModuleHandleA/export dir
+    # NOTE: Do NOT strip system_load__replay__marker — it is the detection
+    # marker used by LibraryHooks::Detect in win32_libentry.cpp to identify
+    # tool/replay processes and skip hook/stealth installation. Stripping it
+    # causes tool processes to go through full anti-detection, breaking them.
     # =========================================================
-    # system_load__replay__marker (27 bytes) - renderdoc-specific pattern, replace it
-    (b'system_load__replay__marker', b'sqcap_lib__active__module__'),  # 27 bytes
     # Clean up any old replay/inject marker artifacts
     (b'sqcap_lib__replay__marker__', b'sqcap_lib__active__module__'),  # 27 bytes
     (b'sqcap_lib__inject__marker__', b'sqcap_lib__active__module__'),  # 27 bytes

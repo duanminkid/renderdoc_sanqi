@@ -993,10 +993,10 @@ extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunFunctionalTests(int pytho
                          // specify script path
                          StringFormat::UTF82Wide(scriptPath),
                          // specify native library path
-                         L"--renderdoc",
+                         L"--sqcap_lib",
                          StringFormat::UTF82Wide(libPath),
                          // specify python module path
-                         L"--pyrenderdoc",
+                         L"--pysqcap",
                          StringFormat::UTF82Wide(modulePath),
                          // force in-process as we can't fork out to python to pass args
                          L"--in-process",

@@ -2849,7 +2849,7 @@ void D3D12RTManager::InitRayDispatchPatchingResources()
         RDCERR("Unable to create pipeline for dispatch patching");
 
       if(m_RayPatchingData.shaderTablePatchPipe)
-        m_RayPatchingData.shaderTablePatchPipe->SetName(L"RENDERDOC_PatchShaderTableCS");
+        m_RayPatchingData.shaderTablePatchPipe->SetName(L"SQC_PatchShaderTableCS");
     }
     else
     {
@@ -2877,7 +2877,7 @@ void D3D12RTManager::InitRayDispatchPatchingResources()
         RDCERR("Unable to create pipeline for dispatch patching");
 
       if(m_RayPatchingData.shaderTableCopyPipe)
-        m_RayPatchingData.shaderTableCopyPipe->SetName(L"RENDERDOC_CopyShaderTableCS");
+        m_RayPatchingData.shaderTableCopyPipe->SetName(L"SQC_CopyShaderTableCS");
     }
     else
     {
@@ -2990,7 +2990,7 @@ void D3D12RTManager::InitRayDispatchPatchingResources()
           &pipeline, __uuidof(ID3D12PipelineState), (void **)&m_RayPatchingData.indirectPrepPipe);
 
       if(m_RayPatchingData.indirectPrepPipe)
-        m_RayPatchingData.indirectPrepPipe->SetName(L"RENDERDOC_PrepareRayIndirectExecuteCS");
+        m_RayPatchingData.indirectPrepPipe->SetName(L"SQC_PrepareRayIndirectExecuteCS");
 
       if(!SUCCEEDED(result))
         RDCERR("Unable to create pipeline for indirect execute patching");
@@ -3131,7 +3131,7 @@ void D3D12RTManager::InitTLASInstanceCopyingResources()
           &pipeline, __uuidof(ID3D12PipelineState), (void **)&m_TLASCopyingData.PreparePipe);
 
       if(m_TLASCopyingData.PreparePipe)
-        m_TLASCopyingData.PreparePipe->SetName(L"RENDERDOC_PrepareTLASCopyIndirectExecuteCS");
+        m_TLASCopyingData.PreparePipe->SetName(L"SQC_PrepareTLASCopyIndirectExecuteCS");
 
       if(!SUCCEEDED(result))
         RDCERR("Unable to create pipeline for TLAS instance copying");
@@ -3159,7 +3159,7 @@ void D3D12RTManager::InitTLASInstanceCopyingResources()
           &pipeline, __uuidof(ID3D12PipelineState), (void **)&m_TLASCopyingData.CopyPipe);
 
       if(m_TLASCopyingData.CopyPipe)
-        m_TLASCopyingData.CopyPipe->SetName(L"RENDERDOC_CopyBLASInstanceCS");
+        m_TLASCopyingData.CopyPipe->SetName(L"SQC_CopyBLASInstanceCS");
 
       if(!SUCCEEDED(result))
         RDCERR("Unable to create pipeline for TLAS instance copying");
@@ -3268,7 +3268,7 @@ void D3D12RTManager::InitReplayBlasPatchingResources()
             &pipeline, __uuidof(ID3D12PipelineState), (void **)&m_accStructPatchInfo.m_pipeline);
 
         if(m_accStructPatchInfo.m_pipeline)
-          m_accStructPatchInfo.m_pipeline->SetName(L"RENDERDOC_PatchAccStructAddressCS");
+          m_accStructPatchInfo.m_pipeline->SetName(L"SQC_PatchAccStructAddressCS");
 
         if(!SUCCEEDED(result))
           RDCERR("Unable to create pipeline for patching the BLAS");

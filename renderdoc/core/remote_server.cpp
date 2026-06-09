@@ -1006,7 +1006,7 @@ void SanQiCapture::BecomeRemoteServer(const rdcstr &listenhost, uint16_t port,
   {
     RDCLOG("No whitelist IP ranges configured - using default private IP ranges.");
     RDCLOG(
-        "Create a config file remoteserver.conf in ~/.renderdoc or %%APPDATA%%/renderdoc to "
+        "Create a config file remoteserver.conf in ~/.sanqicap or %%APPDATA%%/sanqicap to "
         "narrow "
         "this down or accept connections from more ranges.");
 

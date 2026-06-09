@@ -23,7 +23,10 @@
  ******************************************************************************/
 
 #include "MainWindow.h"
+#include <QDateTime>
 #include <QDesktopServices>
+#include <QDir>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QKeyEvent>
@@ -671,8 +674,40 @@ void MainWindow::OnCaptureTrigger(const QString &exe, const QString &workingDir,
 
     QString capturefile = m_Ctx.TempCaptureFilename(QFileInfo(exe).baseName());
 
+    // diagnostic: log before ExecuteAndInject
+    {
+      qint64 now = QDateTime::currentMSecsSinceEpoch();
+      QByteArray bufBA(1024, '\0');
+      qsnprintf(bufBA.data(), 1024,
+                "[SQC-DIAG] OnCaptureTrigger BEFORE: tick=%lld\r\n"
+                "  exe='%s'\r\n"
+                "  workDir='%s'\r\n"
+                "  cmdLine='%s'\r\n"
+                "  capturefile='%s'\r\n",
+                now, exe.toUtf8().constData(), workingDir.toUtf8().constData(),
+                cmdLine.toUtf8().constData(), capturefile.toUtf8().constData());
+      QFile f(QDir::temp().absoluteFilePath(lit("sqc_inject_diag.txt")));
+      if(f.open(QIODevice::Append))
+        f.write(bufBA.constData(), qstrlen(bufBA.constData()));
+      f.close();
+    }
+
     ExecuteResult ret =
         m_Ctx.Replay().ExecuteAndInject(exe, workingDir, cmdLine, env, capturefile, opts);
+
+    // diagnostic: log after ExecuteAndInject
+    {
+      qint64 now = QDateTime::currentMSecsSinceEpoch();
+      QByteArray bufBA(512, '\0');
+      qsnprintf(bufBA.data(), 512,
+                "[SQC-DIAG] OnCaptureTrigger AFTER: tick=%lld "
+                "code=%d ident=%u msg='%s'\r\n",
+                now, (int)ret.result.code, ret.ident, ret.result.Message().c_str());
+      QFile f(QDir::temp().absoluteFilePath(lit("sqc_inject_diag.txt")));
+      if(f.open(QIODevice::Append))
+        f.write(bufBA.constData(), qstrlen(bufBA.constData()));
+      f.close();
+    }
 
     GUIInvoke::call(this, [this, exe, ret, callback]() {
       if(ret.result.code == ResultCode::JDWPFailure)
@@ -696,6 +731,16 @@ void MainWindow::OnCaptureTrigger(const QString &exe, const QString &workingDir,
         RDDialog::critical(
             this, tr("Error launching capture"),
             tr("Error launching %1 for capture.\n\n%2").arg(exe).arg(ret.result.Message()));
+        return;
+      }
+
+      if(ret.ident == 0)
+      {
+        RDDialog::critical(this, tr("Error launching capture"),
+                           tr("Error launching %1 for capture.\n\n"
+                              "The target launched but did not return a valid target control "
+                              "connection.")
+                               .arg(exe));
         return;
       }
 
@@ -739,6 +784,15 @@ void MainWindow::OnInjectTrigger(uint32_t PID, const rdcarray<EnvironmentModific
         RDDialog::critical(
             this, tr("Error injecting into process"),
             tr("Error injecting into process %1 for capture.\n\n%2").arg(PID).arg(ret.result.Message()));
+        return;
+      }
+
+      if(ret.ident == 0)
+      {
+        RDDialog::critical(this, tr("Error injecting into process"),
+                           tr("Error injecting into process %1 for capture.\n\n"
+                              "The target did not return a valid target control connection.")
+                               .arg(PID));
         return;
       }
 

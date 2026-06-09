@@ -1,4 +1,4 @@
-﻿/******************************************************************************
+/******************************************************************************
  * The MIT License (MIT)
  *
  * Copyright (c) 2019-2025 Baldur Karlsson
@@ -30,15 +30,8 @@
 #include "core/core.h"
 #include "hooks/hooks.h"
 #include "strings/string_utils.h"
-#include "win32_ntquery_hook.h"
-#include "win32_stealth.h"
-#include "win32_vk_layer_hide.h"
 
-static BOOL add_hooks(HMODULE hModule)
-{
-  wchar_t curFile[512];
-
-// 诊断宏：写进程时序日志
+// 诊断宏：写进程时序日志到 C:\sqc_steps.txt
 #define SQC_STEP(msg)                                                                         \
   do                                                                                          \
   {                                                                                           \
@@ -54,32 +47,67 @@ static BOOL add_hooks(HMODULE hModule)
       CloseHandle(_h);                                                                        \
     }                                                                                         \
   } while(0)
+
+static BOOL add_hooks(HMODULE hModule)
+{
+  wchar_t curFile[512];
+
+  SQC_STEP("add_hooks entered");
+  OutputDebugStringA("[SQC] add_hooks entered\n");
+
   GetModuleFileNameW(NULL, curFile, 512);
 
-  rdcstr f = get_basename(strlower(StringFormat::Wide2UTF8(curFile)));
-
-  // bail immediately if we're in a system process. We don't want to hook, log, anything -
-  // this instance is being used for a shell extension.
-  if(f == "dllhost.exe" || f == "explorer.exe")
+  // System processes must never be hooked. Tool processes are handled explicitly
+  // by process name so target applications cannot be misclassified by inherited
+  // environment variables.
   {
+    wchar_t *basename = wcsrchr(curFile, L'\\');
+    if(!basename) basename = wcsrchr(curFile, L'/');
+    if(!basename) basename = curFile;
+    else basename++;
+
+    SQC_STEP("add_hooks basename wide check");
+
+    if(_wcsicmp(basename, L"dllhost.exe") == 0 ||
+       _wcsicmp(basename, L"explorer.exe") == 0)
+    {
 #if ENABLED(RDOC_RELEASE)
-    OutputDebugStringA(
-        "Detecting shell process! Disabling hooking in dllhost.exe or explorer.exe\n");
+      OutputDebugStringA(
+          "Detecting shell process! Disabling hooking in dllhost.exe or explorer.exe\n");
 #endif
-    return TRUE;
+      SQC_STEP("excluded by basename check (system process)");
+      return TRUE;
+    }
+
+    if(_wcsicmp(basename, L"qsanqiInjectTool.exe") == 0 ||
+       _wcsicmp(basename, L"sanqicapture.exe") == 0 ||
+       _wcsicmp(basename, L"qrenderdoc.exe") == 0 ||
+       _wcsicmp(basename, L"renderdoccmd.exe") == 0)
+    {
+      SanQiCapture::Inst().SetReplayApp(true);
+      SanQiCapture::Inst().Initialise();
+      LibraryHooks::ReplayInitialise();
+      SQC_STEP("tool process detected by basename, hooks skipped");
+      return true;
+    }
   }
 
-  // search for an exported symbol with this name, typically renderdoc__replay__marker
+  // search for an exported symbol with this name, typically system_load__replay__marker
   if(LibraryHooks::Detect(STRINGIZE(RDOC_BASE_NAME) "__replay__marker"))
   {
     RDCDEBUG("Not creating hooks - in replay app");
 
     SanQiCapture::Inst().SetReplayApp(true);
+
     SanQiCapture::Inst().Initialise();
+
     LibraryHooks::ReplayInitialise();
 
+    SQC_STEP("replay marker detected, hooks skipped");
     return true;
   }
+
+  OutputDebugStringA("[SQC] Calling Initialise\n");
 
   SanQiCapture::Inst().Initialise();
 
@@ -91,41 +119,11 @@ static BOOL add_hooks(HMODULE hModule)
 
   SQC_STEP("after RegisterHooks");
 
-  // Anti-detection step 1: install NtQuery hook and Vk layer hide immediately
-  InstallNtQueryHooks(hModule);
+  OutputDebugStringA("[SQC] RegisterHooks done\n");
 
-  SQC_STEP("after NtQueryHooks");
+  SQC_STEP("add_hooks done");
 
-  InstallVkLayerHide();
-
-  SQC_STEP("after VkLayerHide");
-
-  // Anti-detection step 2: PEB unlink + PE header wipe must be deferred.
-  // The injector calls FindRemoteDLL (CreateToolhelp32Snapshot) immediately after
-  // LoadLibraryW returns. If we unlink too early the injector cannot find our base
-  // address, causing InjectFunctionCall to fail (CaptureOptions etc. never set).
-  // 300ms delay is enough for the injector to finish FindRemoteDLL + all InjectFunctionCall calls.
-  struct StealthParam
-  {
-    HMODULE mod;
-  };
-  StealthParam *param = new StealthParam{hModule};
-
-  HANDLE hThread = CreateThread(
-      NULL, 0,
-      [](LPVOID p) -> DWORD {
-        StealthParam *sp = (StealthParam *)p;
-        Sleep(300);
-        // Clear env vars that expose our identity; Vulkan hook is already installed
-        SetEnvironmentVariableW(L"ENABLE_VULKAN_SQC_LAYER_ACTIVATE_", NULL);
-        SetEnvironmentVariableW(L"VK_INSTANCE_LAYERS", NULL);
-        ApplyModuleStealth(sp->mod);
-        delete sp;
-        return 0;
-      },
-      param, 0, NULL);
-  if(hThread)
-    CloseHandle(hThread);
+  OutputDebugStringA("[SQC] add_hooks returning TRUE\n");
 
   return TRUE;
 }
@@ -134,37 +132,25 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
   if(ul_reason_for_call == DLL_PROCESS_ATTACH)
   {
-    // Cache HMODULE before PEB unlink (stealth) invalidates FROM_ADDRESS lookup
+    OutputDebugStringA("[SQC] DllMain DLL_PROCESS_ATTACH\n");
+
+    // Cache HMODULE and export addresses immediately so remote configuration
+    // calls can resolve functions reliably after injection.
     CacheSelfModuleHandle();
 
-    // 临时诊断：记录 DLL 基地址，方便崩溃地址转 RVA
-    {
-      char buf[128];
-      wsprintfA(buf, "[SQC] sqclib.dll base=0x%IX\n", (uintptr_t)hModule);
-      HANDLE h = CreateFileA("C:\\sqc_base.txt", FILE_APPEND_DATA,
-                             FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-                             OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-      if(h != INVALID_HANDLE_VALUE)
-      {
-        DWORD w;
-        WriteFile(h, buf, lstrlenA(buf), &w, NULL);
-        CloseHandle(h);
-      }
-    }
+    SQC_STEP("after CacheSelfModuleHandle");
+
+    // add_hooks() handles process-type detection internally:
+    //   - system processes (dllhost/explorer) → early return, no hooks
+    //   - replay/tool processes: SetReplayApp + Initialise, no hooks
+    //   - target game processes: full hooks
     BOOL ret = add_hooks(hModule);
+
+    OutputDebugStringA("[SQC] DllMain returning\n");
     SetLastError(0);
-    // 诊断：add_hooks完成
-    {
-      char _buf[128]; DWORD _w;
-      HANDLE _h = CreateFileA("C:\\sqc_steps.txt", FILE_APPEND_DATA,
-                              FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-      if(_h != INVALID_HANDLE_VALUE) {
-        wsprintfA(_buf, "[SQC-STEP] pid=%u DllMain done ret=%d\r\n", GetCurrentProcessId(), (int)ret);
-        WriteFile(_h, _buf, lstrlenA(_buf), &_w, NULL);
-        CloseHandle(_h);
-      }
-    }
+
+    SQC_STEP("DllMain done");
+
     return ret;
   }
 

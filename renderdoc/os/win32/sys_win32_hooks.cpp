@@ -324,6 +324,12 @@ private:
     return ret;
   }
 
+  static bool IsInjectionBlockedProcessText(const rdcstr &text)
+  {
+    return text.contains("sanqicapture.exe") || text.contains("qsanqiinjecttool.exe") ||
+           text.contains("unitycrashhandler64.exe") || text.contains("unitycrashhandler64");
+  }
+
   static bool ShouldInject(LPCWSTR lpApplicationName, LPCWSTR lpCommandLine)
   {
     if(!SanQiCapture::Inst().GetCaptureOptions().hookIntoChildren)
@@ -337,7 +343,7 @@ private:
     {
       rdcstr app = strlower(StringFormat::Wide2UTF8(lpApplicationName));
 
-      if(app.contains("sanqicapture.exe") || app.contains("qsanqiInjectTool.exe"))
+      if(IsInjectionBlockedProcessText(app))
       {
         inject = false;
       }
@@ -346,7 +352,7 @@ private:
     {
       rdcstr cmd = strlower(StringFormat::Wide2UTF8(lpCommandLine));
 
-      if(cmd.contains("sanqicapture.exe") || cmd.contains("qsanqiInjectTool.exe"))
+      if(IsInjectionBlockedProcessText(cmd))
       {
         inject = false;
       }
