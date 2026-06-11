@@ -24,6 +24,7 @@
 
 #include "LiveCapture.h"
 #include <QDesktopServices>
+#include <QElapsedTimer>
 #include <QHostInfo>
 #include <QMenu>
 #include <QMetaProperty>
@@ -566,6 +567,11 @@ void LiveCapture::killThread()
     m_ConnectThread->wait();
     m_ConnectThread->deleteLater();
   }
+}
+
+bool LiveCapture::shouldDisconnect() const
+{
+  return !m_Disconnect.available();
 }
 
 void LiveCapture::setTitle(const QString &title)
@@ -1258,8 +1264,28 @@ void LiveCapture::selfClose()
 
 void LiveCapture::connectionThreadEntry()
 {
-  ITargetControl *conn =
-      RENDERDOC_CreateTargetControl(m_Hostname, m_RemoteIdent, GetSystemUsername(), true);
+  const int connectTimeoutMS = 45000;
+  const int retrySleepMS = 250;
+  QElapsedTimer connectTimer;
+  connectTimer.start();
+
+  ITargetControl *conn = NULL;
+
+  while(!shouldDisconnect() && connectTimer.elapsed() < connectTimeoutMS)
+  {
+    conn = RENDERDOC_CreateTargetControl(m_Hostname, m_RemoteIdent, GetSystemUsername(), true);
+    if(conn && conn->Connected())
+      break;
+
+    if(conn)
+    {
+      conn->Shutdown();
+      conn = NULL;
+    }
+
+    QThread::msleep(retrySleepMS);
+  }
+
   m_Connected.release();
 
   if(!conn || !conn->Connected())
@@ -1267,12 +1293,28 @@ void LiveCapture::connectionThreadEntry()
     if(conn)
       conn->Shutdown();
 
-    GUIInvoke::call(this, [this]() {
+    const bool timedOut = connectTimer.elapsed() >= connectTimeoutMS;
+
+    GUIInvoke::call(this, [this, timedOut]() {
       setTitle(tr("Connection failed"));
       ui->connectionStatus->setText(tr("Failed"));
       ui->connectionIcon->setPixmap(Pixmaps::del(ui->connectionIcon));
 
-      connectionClosed();
+      ui->numFrames->setEnabled(false);
+      ui->captureDelay->setEnabled(false);
+      ui->captureFrame->setEnabled(false);
+      ui->triggerDelayedCapture->setEnabled(false);
+      ui->triggerImmediateCapture->setEnabled(false);
+      ui->queueCap->setEnabled(false);
+      ui->cycleActiveWindow->setEnabled(false);
+
+      if(!shouldDisconnect())
+      {
+        QString msg = timedOut
+                          ? tr("Timed out waiting for the target to open a capture connection.")
+                          : tr("The target capture connection closed before it could be established.");
+        RDDialog::critical(this, tr("Connection failed"), msg);
+      }
     });
 
     m_Connected.acquire();

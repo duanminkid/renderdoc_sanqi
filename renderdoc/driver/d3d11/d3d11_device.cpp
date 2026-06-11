@@ -2375,7 +2375,10 @@ bool WrappedID3D11Device::EndFrameCapture(DeviceOwnedWindow devWnd)
 
     m_Failures++;
 
-    if((SanQiCapture::Inst().GetOverlayBits() & eRENDERDOC_Overlay_Enabled) && swapper)
+    const bool finalCaptureFailure = (m_Failures > 5 || m_AppControlledCapture);
+
+    if(finalCaptureFailure && (SanQiCapture::Inst().GetOverlayBits() & eRENDERDOC_Overlay_Enabled) &&
+       swapper)
     {
       D3D11RenderState old = *m_pImmediateContext->GetCurrentPipelineState();
 
@@ -2422,7 +2425,7 @@ bool WrappedID3D11Device::EndFrameCapture(DeviceOwnedWindow devWnd)
     // if it's a capture triggered from application code, immediately
     // give up as it's not reasonable to expect applications to detect and retry.
     // otherwise we can retry in case the next frame works.
-    if(m_Failures > 5 || m_AppControlledCapture)
+    if(finalCaptureFailure)
     {
       m_pImmediateContext->FinishCapture();
 

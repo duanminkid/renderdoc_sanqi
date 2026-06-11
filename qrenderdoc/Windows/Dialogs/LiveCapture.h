@@ -143,6 +143,7 @@ private:
   void updateAPIStatus();
 
   void connectionThreadEntry();
+  bool shouldDisconnect() const;
   void captureCopied(uint32_t ID, const QString &localPath);
   void captureAdded(const QString &name, const NewCaptureData &newCapture);
   void connectionClosed();
