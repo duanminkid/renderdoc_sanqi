@@ -250,6 +250,7 @@ void CaptureDialog::SetInjectMode(bool inject)
     ui->verticalLayout->invalidate();
 
     ui->globalGroup->setVisible(false);
+    ui->D3D11Proxy->setEnabled(false);
 
     fillProcessList();
 
@@ -265,6 +266,7 @@ void CaptureDialog::SetInjectMode(bool inject)
     ui->verticalLayout->invalidate();
 
     ui->globalGroup->setVisible(m_Ctx.Config().AllowGlobalHook);
+    ui->D3D11Proxy->setEnabled(true);
 
     ui->launch->setText(lit("Launch"));
     this->setWindowTitle(lit("Launch Application"));
@@ -921,6 +923,7 @@ void CaptureDialog::SetSettings(CaptureSettings settings)
   ui->AllowFullscreen->setChecked(settings.options.allowFullscreen);
   ui->AllowVSync->setChecked(settings.options.allowVSync);
   ui->HookIntoChildren->setChecked(settings.options.hookIntoChildren);
+  ui->D3D11Proxy->setChecked(settings.d3d11Proxy);
   ui->CaptureCallstacks->setChecked(settings.options.captureCallstacks);
   ui->CaptureCallstacksOnlyActions->setChecked(settings.options.captureCallstacksOnlyActions);
   ui->APIValidation->setChecked(settings.options.apiValidation);
@@ -960,6 +963,7 @@ CaptureSettings CaptureDialog::Settings()
   ret.inject = IsInjectMode();
 
   ret.autoStart = ui->AutoStart->isChecked();
+  ret.d3d11Proxy = ui->D3D11Proxy->isChecked();
 
   ret.executable = ui->exePath->text();
   ret.workingDir = ui->workDirPath->text();
@@ -1257,7 +1261,20 @@ void CaptureDialog::TriggerCapture()
       }
     }
 
-    m_CaptureCallback(exe, workingDir, cmdLine, Settings().environment, Settings().options,
+    CaptureSettings settings = Settings();
+    rdcarray<EnvironmentModification> env = settings.environment;
+
+    if(settings.d3d11Proxy)
+    {
+      EnvironmentModification mod;
+      mod.name = "SQC_D3D11_PROXY";
+      mod.value = "1";
+      mod.mod = EnvMod::Set;
+      mod.sep = EnvSep::NoSep;
+      env.push_back(mod);
+    }
+
+    m_CaptureCallback(exe, workingDir, cmdLine, env, settings.options,
                       [this](LiveCapture *live) {
                         if(ui->queueFrameCap->isChecked())
                           live->QueueCapture((int)ui->queuedFrame->value(),

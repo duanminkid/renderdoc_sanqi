@@ -170,7 +170,7 @@ struct ObfuscatedWideString {
 
 // Environment variables
 #define OBF_ENV_VULKAN_RENDERDOC OBF_ENV_VULKAN_SYSTEM_LOAD
-#define OBF_ENV_VULKAN_SYSTEM_LOAD OBFUSCATE("ENABLE_VULKAN_SQC_LAYER_ACTIVATE_")
+#define OBF_ENV_VULKAN_SYSTEM_LOAD OBFUSCATE("ENABLE_VULKAN_SYSTEM_LOAD_CAPTURE")
 
 // ============================================================================
 // Instance Access Obfuscation

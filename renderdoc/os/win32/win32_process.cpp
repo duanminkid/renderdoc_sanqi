@@ -27,9 +27,11 @@
 #include <windows.h>
 
 #include <Psapi.h>
+#include <Shlwapi.h>
 #include <tchar.h>
 #include <tlhelp32.h>
 #include <winternl.h>
+#include "api/replay/capture_options.h"
 #include "common/formatting.h"
 #include "core/core.h"
 #include "os/os_specific.h"
@@ -53,6 +55,30 @@ static void SqcDiagLog(const char *msg)
     WriteFile(hf, msg, (DWORD)lstrlenA(msg), &w, NULL);
     CloseHandle(hf);
   }
+}
+
+static uint32_t ReadTargetIdentFile(uint32_t pid)
+{
+  wchar_t path[MAX_PATH] = {};
+  GetTempPathW(MAX_PATH, path);
+  wcscat_s(path, L"sqc_target_ident_");
+
+  wchar_t pidbuf[32] = {};
+  swprintf_s(pidbuf, L"%u.txt", pid);
+  wcscat_s(path, pidbuf);
+
+  FILE *f = FileIO::fopen(StringFormat::Wide2UTF8(path), FileIO::ReadText);
+  if(f == NULL)
+    return 0;
+
+  char buf[64] = {};
+  size_t read = fread(buf, 1, sizeof(buf) - 1, f);
+  FileIO::fclose(f);
+
+  if(read == 0)
+    return 0;
+
+  return (uint32_t)strtoul(buf, NULL, 10);
 }
 
 // NtCreateThreadEx: undocumented NT API (kept for future use)
@@ -192,6 +218,68 @@ rdcstr Process::GetEnvVariable(const rdcstr &name)
   return ret;
 }
 
+static bool TextMatchesProcessList(const rdcstr &text, const rdcstr &list)
+{
+  rdcstr lowered = strlower(text);
+  rdcarray<rdcstr> entries;
+  split(list, entries, ';');
+
+  for(rdcstr entry : entries)
+  {
+    entry = strlower(entry.trimmed());
+
+    if(entry.empty())
+      continue;
+
+    if(lowered.contains(entry))
+      return true;
+  }
+
+  return false;
+}
+
+bool Process::IsInjectionBlockedProcessText(const rdcstr &text)
+{
+  static const char *defaultBlocklist =
+      "sanqicapture.exe;"
+      "qsanqiinjecttool.exe;"
+      "steam.exe;"
+      "steamwebhelper.exe;"
+      "steamservice.exe;"
+      "UnityCrashHandler64.exe;"
+      "crashreport.exe;"
+      "upload_crash.exe;"
+      "APM4webCrashR.exe;"
+      "ZFGameBrowser.exe;"
+      "WerFault.exe";
+
+  if(TextMatchesProcessList(text, defaultBlocklist))
+    return true;
+
+  rdcstr envBlocklist = Process::GetEnvVariable("SQC_INJECT_BLOCKLIST");
+  if(!envBlocklist.empty() && TextMatchesProcessList(text, envBlocklist))
+    return true;
+
+  return false;
+}
+
+bool Process::IsInjectionBlockedProcess(uint32_t pid)
+{
+  HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if(hProcess == NULL)
+    return false;
+
+  char processName[MAX_PATH] = {};
+  DWORD size = MAX_PATH;
+  bool blocked = false;
+
+  if(QueryFullProcessImageNameA(hProcess, 0, processName, &size))
+    blocked = Process::IsInjectionBlockedProcessText(processName);
+
+  CloseHandle(hProcess);
+  return blocked;
+}
+
 uint64_t Process::GetMemoryUsage()
 {
   HANDLE proc = GetCurrentProcess();
@@ -276,7 +364,7 @@ extern "C" __declspec(dllexport) void __cdecl INTERNAL_ApplyEnvMods(void *ignore
   Process::ApplyEnvironmentModification();
 }
 
-static const DWORD InjectRemoteThreadTimeoutMS = 10000;
+static const DWORD InjectRemoteThreadTimeoutMS = 30000;
 
 bool InjectDLL(HANDLE hProcess, rdcwstr libName)
 {
@@ -456,11 +544,16 @@ bool InjectFunctionCall(HANDLE hProcess, uintptr_t renderdoc_remote, const char 
   }
 
   RDCDEBUG("Injecting call to %s", funcName);
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] InjectFunctionCall BEGIN: tick=%u func=%s bytes=%llu\r\n",
+                               GetTickCount(), funcName, (unsigned long long)dataLen)
+                 .c_str());
 
-  HMODULE renderdoc_local = GetCachedSelfModuleHandle();
+  HMODULE renderdoc_local = GetModuleHandleA(STRINGIZE(RDOC_BASE_NAME) ".dll");
+  if(renderdoc_local == NULL)
+    renderdoc_local = GetCachedSelfModuleHandle();
   if(renderdoc_local == NULL)
   {
-    RDCERR("Couldn't get cached local module handle for injected call to %s", funcName);
+    RDCERR("Couldn't get local module handle for injected call to %s", funcName);
     return false;
   }
 
@@ -505,6 +598,10 @@ bool InjectFunctionCall(HANDLE hProcess, uintptr_t renderdoc_remote, const char 
   {
     RDCERR("Timed out waiting for injected call to %s, wait result: %u, err: %u", funcName,
            waitRet, GetLastError());
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] InjectFunctionCall TIMEOUT: tick=%u func=%s wait=%u err=%u\r\n",
+                   GetTickCount(), funcName, waitRet, GetLastError())
+                   .c_str());
     CloseHandle(hThread);
     return false;
   }
@@ -519,6 +616,9 @@ bool InjectFunctionCall(HANDLE hProcess, uintptr_t renderdoc_remote, const char 
 
   CloseHandle(hThread);
   VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] InjectFunctionCall OK: tick=%u func=%s\r\n",
+                               GetTickCount(), funcName)
+                 .c_str());
   return true;
 }
 
@@ -645,7 +745,7 @@ static PROCESS_INFORMATION RunProcess(const rdcstr &app, const rdcstr &workingDi
 
   DWORD err = GetLastError();
 
-  if(retValue)
+  if(retValue && (!internal || Process::GetEnvVariable("SQC_VERBOSE_PROCESS_LOG") == "1"))
   {
     // diagnostic: log CreateProcessW success
     char diagBuf[512];
@@ -686,43 +786,25 @@ static PROCESS_INFORMATION RunProcess(const rdcstr &app, const rdcstr &workingDi
   return pi;
 }
 
-static bool IsBlockedInjectionProcessName(const rdcstr &processName)
-{
-  rdcstr basename = strlower(get_basename(processName));
-  return basename == "unitycrashhandler64.exe" || basename == "unitycrashhandler64";
-}
-
-static bool IsBlockedInjectionProcess(HANDLE hProcess)
-{
-  wchar_t imagePath[32768] = {};
-  DWORD size = _countof(imagePath);
-
-  if(QueryFullProcessImageNameW(hProcess, 0, imagePath, &size))
-    return IsBlockedInjectionProcessName(StringFormat::Wide2UTF8(imagePath));
-
-  return false;
-}
-
 rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
                                                        const rdcarray<EnvironmentModification> &env,
                                                        const rdcstr &capturefile,
                                                        const CaptureOptions &opts, bool waitForExit)
 {
+  if(Process::IsInjectionBlockedProcess(pid))
+  {
+    RDResult result;
+    SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                     "Process %u matches the SanQi Capture injection blocklist.", pid);
+    return {result, 0};
+  }
+
   rdcwstr wcapturefile = StringFormat::UTF82Wide(capturefile);
 
   HANDLE hProcess =
       OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION |
                       PROCESS_VM_WRITE | PROCESS_VM_READ | SYNCHRONIZE,
                   FALSE, pid);
-
-  if(hProcess && IsBlockedInjectionProcess(hProcess))
-  {
-    RDResult result;
-    SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
-                     "Skipping injection into Unity crash handler process.");
-    CloseHandle(hProcess);
-    return {result, 0};
-  }
 
   if(opts.delayForDebugger > 0)
   {
@@ -751,7 +833,10 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
   RDCLOG("Injecting sqcap library into process %lu", pid);
 
   wchar_t renderdocPath[MAX_PATH] = {0};
-  GetModuleFileNameW(GetCachedSelfModuleHandle(), &renderdocPath[0], MAX_PATH - 1);
+  HMODULE selfModule = GetModuleHandleA(STRINGIZE(RDOC_BASE_NAME) ".dll");
+  if(selfModule == NULL)
+    selfModule = GetCachedSelfModuleHandle();
+  GetModuleFileNameW(selfModule, &renderdocPath[0], MAX_PATH - 1);
 
   // Diagnose injector path resolution
   {
@@ -1144,24 +1229,47 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
   {
     // safe to cast away the const as we know these functions don't modify the parameters
     bool setupOK = true;
+    bool captureTemplateConfigured = capturefile.empty();
+    const char *failedFunc = NULL;
 
     if(!capturefile.empty())
+    {
       setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_SetCaptureFile",
                                    (void *)capturefile.c_str(), capturefile.size() + 1);
+      if(setupOK)
+        captureTemplateConfigured = true;
+      else
+        failedFunc = "INTERNAL_SetCaptureFile";
+    }
 
-    rdcstr debugLogfile = RDCGETLOGFILE();
-
-    if(setupOK)
+    if(setupOK && Process::GetEnvVariable("SQC_REMOTE_DEBUG_LOG") == "1")
+    {
+      rdcstr debugLogfile = RDCGETLOGFILE();
       setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_SetDebugLogFile",
                                    (void *)debugLogfile.c_str(), debugLogfile.size() + 1);
+      if(!setupOK)
+        failedFunc = "INTERNAL_SetDebugLogFile";
+    }
 
     if(setupOK)
+    {
       setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_SetCaptureOptions",
                                    (CaptureOptions *)&opts, sizeof(CaptureOptions));
+      if(!setupOK)
+        failedFunc = "INTERNAL_SetCaptureOptions";
+    }
 
     if(setupOK)
-      setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_GetTargetControlIdent", &result.second,
-                                   sizeof(result.second));
+    {
+      result.second = ReadTargetIdentFile(pid);
+      if(result.second == 0)
+      {
+        setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_GetTargetControlIdent",
+                                     &result.second, sizeof(result.second));
+        if(!setupOK)
+          failedFunc = "INTERNAL_GetTargetControlIdent";
+      }
+    }
 
     if(setupOK && !env.empty())
     {
@@ -1185,23 +1293,55 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
         if(setupOK)
           setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_EnvMod", &mod, sizeof(mod));
         if(!setupOK)
+        {
+          failedFunc = "INTERNAL_EnvMod*";
           break;
+        }
       }
 
       // parameter is unused
       void *dummy = NULL;
       if(setupOK)
+      {
         setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_ApplyEnvMods", &dummy,
                                      sizeof(dummy));
+        if(!setupOK)
+          failedFunc = "INTERNAL_ApplyEnvMods";
+      }
     }
 
     if(!setupOK)
     {
-      SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
-                       "Timed out or failed configuring injected %s.dll.", rdoc_dll);
-      result.second = 0;
+      uint32_t ident = ReadTargetIdentFile(pid);
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] Inject config failed func=%s captureTemplate=%u identFile=%u\r\n",
+                     failedFunc ? failedFunc : "<unknown>", captureTemplateConfigured ? 1 : 0,
+                     ident)
+                     .c_str());
+
+      if(captureTemplateConfigured && ident != 0)
+      {
+        result.first = ResultCode::Succeeded;
+        result.second = ident;
+        SqcDiagLog(StringFormat::Fmt(
+                       "[SQC-DIAG] Inject config fallback success pid=%u ident=%u\r\n", pid,
+                       ident)
+                       .c_str());
+      }
+      else
+      {
+        SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
+                         "Timed out or failed configuring injected %s.dll at %s.", rdoc_dll,
+                         failedFunc ? failedFunc : "unknown step");
+        result.second = 0;
+      }
     }
     else if(result.second == 0)
+    {
+      result.second = ReadTargetIdentFile(pid);
+    }
+
+    if(setupOK && result.second == 0)
     {
       SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
                        "Injected %s.dll did not report a target control connection.", rdoc_dll);
@@ -1302,22 +1442,392 @@ uint32_t Process::LaunchScript(const rdcstr &script, const rdcstr &workingDir,
   return LaunchProcess("cmd.exe", workingDir, args, internal, result);
 }
 
+static void AddEnvMod(rdcarray<EnvironmentModification> &env, const rdcstr &name,
+                      const rdcstr &value)
+{
+  EnvironmentModification mod;
+  mod.name = name;
+  mod.value = value;
+  mod.mod = EnvMod::Set;
+  mod.sep = EnvSep::NoSep;
+  env.push_back(mod);
+}
+
+static bool WantsD3D11Proxy(const rdcarray<EnvironmentModification> &env)
+{
+  for(const EnvironmentModification &e : env)
+  {
+    if(strlower(e.name) == "sqc_d3d11_proxy" && e.mod == EnvMod::Set && e.value == "1")
+      return true;
+  }
+
+  return false;
+}
+
+static rdcstr SiblingPath(const rdcstr &path, const rdcstr &filename)
+{
+  return get_dirname(path) + "/" + filename;
+}
+
+static uint32_t ReadProxyIdent(const rdcstr &identFile)
+{
+  FILE *f = FileIO::fopen(identFile, FileIO::ReadText);
+  if(f == NULL)
+    return 0;
+
+  char buf[64] = {};
+  size_t read = fread(buf, 1, sizeof(buf) - 1, f);
+  FileIO::fclose(f);
+
+  if(read == 0)
+    return 0;
+
+  return (uint32_t)strtoul(buf, NULL, 10);
+}
+
+static bool IsSanQiD3D11ProxyPayload(const rdcstr &path)
+{
+  rdcstr contents;
+  if(!FileIO::ReadAll(path, contents))
+    return false;
+
+  return contents.contains("SQC_D3D11_PROXY_PAYLOAD_V1") ||
+         contents.contains("sqc_d3d11_proxy.txt");
+}
+
+static bool ContainsPID(const rdcarray<DWORD> &pids, DWORD pid)
+{
+  for(DWORD existing : pids)
+  {
+    if(existing == pid)
+      return true;
+  }
+
+  return false;
+}
+
+static void CaptureExistingProcessPIDs(rdcarray<DWORD> &pids)
+{
+  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if(snapshot == INVALID_HANDLE_VALUE)
+    return;
+
+  PROCESSENTRY32 pe32 = {};
+  pe32.dwSize = sizeof(PROCESSENTRY32);
+
+  if(Process32First(snapshot, &pe32))
+  {
+    do
+    {
+      if(!ContainsPID(pids, pe32.th32ProcessID))
+        pids.push_back(pe32.th32ProcessID);
+    } while(Process32Next(snapshot, &pe32));
+  }
+
+  CloseHandle(snapshot);
+}
+
+static rdcstr NormaliseWinProcessPath(const rdcstr &path)
+{
+  char fullPath[32768] = {};
+  DWORD len = GetFullPathNameA(path.c_str(), (DWORD)sizeof(fullPath), fullPath, NULL);
+  rdcstr ret = (len > 0 && len < sizeof(fullPath)) ? rdcstr(fullPath) : path;
+  return strlower(standardise_directory_separator(ret));
+}
+
+static bool GetProcessImagePath(DWORD pid, rdcstr &path)
+{
+  HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if(hProcess == NULL)
+    return false;
+
+  char processName[32768] = {};
+  DWORD size = sizeof(processName);
+  bool ret = QueryFullProcessImageNameA(hProcess, 0, processName, &size) != FALSE;
+  CloseHandle(hProcess);
+
+  if(ret)
+    path = processName;
+
+  return ret;
+}
+
+static DWORD FindMatchingProcessByPath(const rdcstr &targetPath, DWORD launchedPid,
+                                       const rdcarray<DWORD> &attemptedPids,
+                                       rdcarray<DWORD> &seenPids)
+{
+  const rdcstr target = NormaliseWinProcessPath(targetPath);
+  const rdcstr targetBase = strlower(get_basename(targetPath));
+
+  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if(snapshot == INVALID_HANDLE_VALUE)
+    return 0;
+
+  PROCESSENTRY32 pe32 = {};
+  pe32.dwSize = sizeof(PROCESSENTRY32);
+
+  DWORD matchedPid = 0;
+  if(Process32First(snapshot, &pe32))
+  {
+    do
+    {
+      DWORD pid = pe32.th32ProcessID;
+      bool newlySeen = !ContainsPID(seenPids, pid);
+      if(newlySeen)
+        seenPids.push_back(pid);
+
+      if(pid == 0 || pid == 4 || pid == GetCurrentProcessId() || pid == launchedPid ||
+         ContainsPID(attemptedPids, pid))
+      {
+        continue;
+      }
+
+      rdcstr processPath;
+      bool havePath = GetProcessImagePath(pid, processPath);
+      rdcstr displayPath = havePath ? processPath : StringFormat::Wide2UTF8(pe32.szExeFile);
+      bool blocked = Process::IsInjectionBlockedProcess(pid);
+      bool basenameMatch = strlower(get_basename(displayPath)) == targetBase;
+      bool pathMatch = havePath && NormaliseWinProcessPath(processPath) == target;
+
+      if(newlySeen)
+      {
+        rdcstr parentPath;
+        GetProcessImagePath(pe32.th32ParentProcessID, parentPath);
+        SqcDiagLog(StringFormat::Fmt(
+                       "[SQC-DIAG] RelaunchWait candidate pid=%u parent=%u exe='%s' path='%s' parentPath='%s' blocked=%u basenameMatch=%u pathMatch=%u\r\n",
+                       pid, pe32.th32ParentProcessID,
+                       StringFormat::Wide2UTF8(pe32.szExeFile).c_str(), displayPath.c_str(),
+                       parentPath.c_str(), blocked ? 1 : 0, basenameMatch ? 1 : 0,
+                       pathMatch ? 1 : 0)
+                       .c_str());
+      }
+
+      if(!havePath || blocked)
+        continue;
+
+      rdcstr normalisedPath = NormaliseWinProcessPath(processPath);
+      if(normalisedPath == target)
+      {
+        matchedPid = pid;
+        break;
+      }
+
+      if(strlower(get_basename(processPath)) == targetBase)
+      {
+        SqcDiagLog(StringFormat::Fmt(
+                       "[SQC-DIAG] RelaunchWait saw basename match pid=%u path='%s'\r\n", pid,
+                       processPath.c_str())
+                       .c_str());
+      }
+    } while(Process32Next(snapshot, &pe32));
+  }
+
+  CloseHandle(snapshot);
+  return matchedPid;
+}
+
+static rdcpair<RDResult, uint32_t> WaitForRelaunchedProcessAndInject(
+    const rdcstr &app, DWORD launchedPid, const rdcstr &capturefile, const CaptureOptions &opts,
+    DWORD timeoutMS)
+{
+  rdcarray<DWORD> attemptedPids;
+  rdcarray<DWORD> seenPids;
+  CaptureExistingProcessPIDs(seenPids);
+
+  DWORD start = GetTickCount();
+  rdcstr launchedPath;
+  GetProcessImagePath(launchedPid, launchedPath);
+
+  SqcDiagLog(StringFormat::Fmt(
+                 "[SQC-DIAG] RelaunchWait BEGIN: tick=%u target='%s' launchedPid=%u launchedPath='%s' timeout=%u\r\n",
+                 start, app.c_str(), launchedPid, launchedPath.c_str(), timeoutMS)
+                 .c_str());
+
+  while(GetTickCount() - start < timeoutMS)
+  {
+    DWORD pid = FindMatchingProcessByPath(app, launchedPid, attemptedPids, seenPids);
+    if(pid != 0)
+    {
+      attemptedPids.push_back(pid);
+      SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] RelaunchWait matched pid=%u\r\n", pid).c_str());
+
+      Threading::Sleep(500);
+
+      rdcpair<RDResult, uint32_t> ret =
+          Process::InjectIntoProcess(pid, {}, capturefile, opts, false);
+
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] RelaunchWait inject pid=%u code=%d ident=%u msg='%s'\r\n", pid,
+                     (int)ret.first.code, ret.second, ret.first.message.c_str())
+                     .c_str());
+
+      if(ret.first == ResultCode::Succeeded && ret.second != 0)
+        return ret;
+    }
+
+    Threading::Sleep(250);
+  }
+
+  RDResult result = ResultCode::InjectionFailed;
+  SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                   "Timed out waiting for relaunched process matching '%s'.", app.c_str());
+  SqcDiagLog("[SQC-DIAG] RelaunchWait timeout\r\n");
+  return {result, 0};
+}
+
+static bool IsLikelySteamLaunchTarget(const rdcstr &app)
+{
+  rdcstr normalised = NormaliseWinProcessPath(app);
+  return normalised.contains("/steamapps/") || normalised.contains("\\steamapps\\");
+}
+
+rdcpair<RDResult, uint32_t> Process::LaunchWithD3D11Proxy(
+    const rdcstr &app, const rdcstr &workingDir, const rdcstr &cmdLine,
+    const rdcarray<EnvironmentModification> &env, const rdcstr &capturefile,
+    const CaptureOptions &opts, bool waitForExit)
+{
+  RDResult result = ResultCode::Succeeded;
+
+  SqcDiagLog(StringFormat::Fmt(
+                 "[SQC-DIAG] D3D11Proxy BEGIN: tick=%u app='%s' workdir='%s' cmd='%s'\r\n",
+                 GetTickCount(), app.c_str(), workingDir.c_str(), cmdLine.c_str())
+                 .c_str());
+
+  rdcstr targetProxy = SiblingPath(app, "d3d11.dll");
+  bool targetExists =
+      GetFileAttributesW(StringFormat::UTF82Wide(targetProxy).c_str()) != INVALID_FILE_ATTRIBUTES;
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy target='%s' exists=%u\r\n",
+                               targetProxy.c_str(), targetExists ? 1 : 0)
+                 .c_str());
+
+  if(targetExists && !IsSanQiD3D11ProxyPayload(targetProxy))
+  {
+    SET_ERROR_RESULT(result, ResultCode::FileIOFailed,
+                     "D3D11 proxy launch refused because '%s' already exists.", targetProxy.c_str());
+    SqcDiagLog("[SQC-DIAG] D3D11Proxy refused existing non-SanQi d3d11.dll\r\n");
+    return {result, 0};
+  }
+
+  wchar_t systemLoadPath[MAX_PATH] = {};
+  HMODULE selfModule = GetModuleHandleA(STRINGIZE(RDOC_BASE_NAME) ".dll");
+  if(selfModule == NULL)
+    selfModule = GetCachedSelfModuleHandle();
+  GetModuleFileNameW(selfModule, systemLoadPath, MAX_PATH - 1);
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy system_load='%s'\r\n",
+                               StringFormat::Wide2UTF8(systemLoadPath).c_str())
+                 .c_str());
+
+  rdcstr proxySource = SiblingPath(StringFormat::Wide2UTF8(systemLoadPath), "d3d11_proxy.dll");
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy source='%s'\r\n", proxySource.c_str())
+                 .c_str());
+
+  if(GetFileAttributesW(StringFormat::UTF82Wide(proxySource).c_str()) == INVALID_FILE_ATTRIBUTES)
+  {
+    SET_ERROR_RESULT(result, ResultCode::FileIOFailed,
+                     "D3D11 proxy payload '%s' was not found. Build version_proxy first.",
+                     proxySource.c_str());
+    SqcDiagLog("[SQC-DIAG] D3D11Proxy source missing\r\n");
+    return {result, 0};
+  }
+
+  if(!CopyFileW(StringFormat::UTF82Wide(proxySource).c_str(),
+                StringFormat::UTF82Wide(targetProxy).c_str(), FALSE))
+  {
+    DWORD err = GetLastError();
+    SET_ERROR_RESULT(result, ResultCode::FileIOFailed,
+                     "Failed to copy D3D11 proxy payload to '%s' (err %u).", targetProxy.c_str(),
+                     err);
+    SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy copy failed err=%u\r\n", err).c_str());
+    return {result, 0};
+  }
+
+  bool copied =
+      GetFileAttributesW(StringFormat::UTF82Wide(targetProxy).c_str()) != INVALID_FILE_ATTRIBUTES;
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy copy ok targetExistsAfterCopy=%u\r\n",
+                               copied ? 1 : 0)
+                 .c_str());
+
+  rdcstr identFile = FileIO::GetTempFolderFilename();
+  identFile += "/sqc_proxy_ident_";
+  identFile += ToStr((uint64_t)GetTickCount());
+  identFile += ".txt";
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy ident='%s'\r\n", identFile.c_str()).c_str());
+
+  rdcarray<EnvironmentModification> proxyEnv = env;
+  AddEnvMod(proxyEnv, "SQC_PROXY_SYSTEM_LOAD", StringFormat::Wide2UTF8(systemLoadPath));
+  AddEnvMod(proxyEnv, "SQC_PROXY_CAPTURE_FILE", capturefile);
+  AddEnvMod(proxyEnv, "SQC_PROXY_CAPTURE_OPTS", opts.EncodeAsString());
+  AddEnvMod(proxyEnv, "SQC_PROXY_DEBUG_LOG", RDCGETLOGFILE());
+  AddEnvMod(proxyEnv, "SQC_PROXY_IDENT_FILE", identFile);
+
+  PROCESS_INFORMATION pi = RunProcess(app, workingDir, cmdLine, proxyEnv, false, NULL, NULL);
+
+  if(pi.dwProcessId == 0)
+  {
+    DeleteFileW(StringFormat::UTF82Wide(targetProxy).c_str());
+    SET_ERROR_RESULT(result, ResultCode::InjectionFailed, "Failed to launch process.");
+    SqcDiagLog("[SQC-DIAG] D3D11Proxy launch failed, target proxy deleted\r\n");
+    return {result, 0};
+  }
+
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy launched pid=%u\r\n", pi.dwProcessId).c_str());
+
+  ResumeThread(pi.hThread);
+
+  uint32_t ident = 0;
+  DWORD exitCode = STILL_ACTIVE;
+  DWORD start = GetTickCount();
+  while(GetTickCount() - start < 15000)
+  {
+    ident = ReadProxyIdent(identFile);
+    if(ident != 0)
+      break;
+
+    if(GetExitCodeProcess(pi.hProcess, &exitCode) && exitCode != STILL_ACTIVE)
+      break;
+
+    Sleep(100);
+  }
+
+  if(waitForExit)
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+  CloseHandle(pi.hThread);
+  CloseHandle(pi.hProcess);
+
+  if(ident == 0)
+  {
+    bool targetStillExists =
+        GetFileAttributesW(StringFormat::UTF82Wide(targetProxy).c_str()) != INVALID_FILE_ATTRIBUTES;
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] D3D11Proxy no ident exitCode=%u targetStillExists=%u\r\n", exitCode,
+                   targetStillExists ? 1 : 0)
+                   .c_str());
+    SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                     "D3D11 proxy launched the process but did not report target control.");
+    return {result, 0};
+  }
+
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy SUCCESS ident=%u\r\n", ident).c_str());
+  return {ResultCode::Succeeded, ident};
+}
+
 rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     const rdcstr &app, const rdcstr &workingDir, const rdcstr &cmdLine,
     const rdcarray<EnvironmentModification> &env, const rdcstr &capturefile,
     const CaptureOptions &opts, bool waitForExit)
 {
+  if(WantsD3D11Proxy(env))
+    return LaunchWithD3D11Proxy(app, workingDir, cmdLine, env, capturefile, opts, waitForExit);
+
   // Try cached proc address first (survives PE header wipe after stealth injection).
   // Tool processes (qrenderdoc etc.) skip CacheSelfModuleHandle in DllMain, so cache
   // may be empty — fall back to direct GetProcAddress which works when PE is intact.
-  void *func = (void *)GetCachedProcAddress("INTERNAL_SetCaptureFile");
+  HMODULE mod = GetModuleHandleA(STRINGIZE(RDOC_BASE_NAME) ".dll");
+  void *func = mod ? (void *)GetProcAddress(mod, "INTERNAL_SetCaptureFile") : NULL;
 
   if(func == NULL)
-  {
-    HMODULE mod = GetModuleHandleA(STRINGIZE(RDOC_BASE_NAME) ".dll");
-    if(mod)
-      func = (void *)GetProcAddress(mod, "INTERNAL_SetCaptureFile");
-  }
+    func = (void *)GetCachedProcAddress("INTERNAL_SetCaptureFile");
 
   // diagnostic: log export lookup result
   {
@@ -1348,14 +1858,6 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     return {result, 0};
   }
 
-  if(IsBlockedInjectionProcessName(app))
-  {
-    RDResult result;
-    SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
-                     "Skipping injection into Unity crash handler process.");
-    return {result, 0};
-  }
-
   PROCESS_INFORMATION pi = RunProcess(app, workingDir, cmdLine, env, false, NULL, NULL);
 
   if(pi.dwProcessId == 0)
@@ -1365,11 +1867,82 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     return {result, 0};
   }
 
+  ResumeThread(pi.hThread);
+  ResumeThread(pi.hThread);
+
+  const bool steamLaunchTarget = IsLikelySteamLaunchTarget(app);
+  if(steamLaunchTarget)
+  {
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] RelaunchWait steam target, waiting before first-process injection pid=%u hookChildren=%u\r\n",
+                   pi.dwProcessId, opts.hookIntoChildren ? 1 : 0)
+                   .c_str());
+
+    rdcpair<RDResult, uint32_t> relaunched =
+        WaitForRelaunchedProcessAndInject(app, pi.dwProcessId, capturefile, opts, 30000);
+
+    if(relaunched.first == ResultCode::Succeeded && relaunched.second != 0)
+    {
+      CloseHandle(pi.hProcess);
+      CloseHandle(pi.hThread);
+      return relaunched;
+    }
+
+    DWORD firstExit = WaitForSingleObject(pi.hProcess, 0);
+    if(firstExit == WAIT_TIMEOUT)
+    {
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] RelaunchWait fallback first process still alive, injecting pid=%u\r\n",
+                     pi.dwProcessId)
+                     .c_str());
+
+      rdcpair<RDResult, uint32_t> first =
+          InjectIntoProcess(pi.dwProcessId, {}, capturefile, opts, false);
+
+      CloseHandle(pi.hProcess);
+      CloseHandle(pi.hThread);
+      return first;
+    }
+
+    DWORD exitCode = 0;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] RelaunchWait no relaunch and first process exited pid=%u exitCode=%u\r\n",
+                   pi.dwProcessId, exitCode)
+                   .c_str());
+
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return relaunched;
+  }
+
+  if(opts.hookIntoChildren)
+  {
+    DWORD firstExit = WaitForSingleObject(pi.hProcess, 5000);
+    if(firstExit == WAIT_OBJECT_0)
+    {
+      DWORD exitCode = 0;
+      GetExitCodeProcess(pi.hProcess, &exitCode);
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] RelaunchWait first process exited before injection pid=%u exitCode=%u\r\n",
+                     pi.dwProcessId, exitCode)
+                     .c_str());
+
+      CloseHandle(pi.hProcess);
+      CloseHandle(pi.hThread);
+
+      return WaitForRelaunchedProcessAndInject(app, pi.dwProcessId, capturefile, opts, 30000);
+    }
+
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] RelaunchWait first process still alive, injecting pid=%u\r\n",
+                   pi.dwProcessId)
+                   .c_str());
+  }
+
   rdcpair<RDResult, uint32_t> ret = InjectIntoProcess(pi.dwProcessId, {}, capturefile, opts, false);
 
   CloseHandle(pi.hProcess);
-  ResumeThread(pi.hThread);
-  ResumeThread(pi.hThread);
 
   if(ret.second == 0 || ret.first != ResultCode::Succeeded)
   {

@@ -1955,6 +1955,9 @@ void SanQiCapture::SetCaptureFileTemplate(const rdcstr &pathtemplate)
   if(m_CaptureFileTemplate.length() > 4 &&
      m_CaptureFileTemplate.substr(m_CaptureFileTemplate.length() - 4) == ".rdc")
     m_CaptureFileTemplate = m_CaptureFileTemplate.substr(0, m_CaptureFileTemplate.length() - 4);
+  else if(m_CaptureFileTemplate.length() > 4 &&
+          m_CaptureFileTemplate.substr(m_CaptureFileTemplate.length() - 4) == ".dat")
+    m_CaptureFileTemplate = m_CaptureFileTemplate.substr(0, m_CaptureFileTemplate.length() - 4);
 
   FileIO::CreateParentDirectory(m_CaptureFileTemplate);
 }

@@ -232,18 +232,12 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
 
   m_RemoteProbeSemaphore.release();
   m_RemoteProbe = new LambdaThread([this]() {
-    // fetch all device protocols to start them processing
-    rdcarray<rdcstr> protocols;
-    RENDERDOC_GetSupportedDeviceProtocols(&protocols);
-    for(const rdcstr &p : protocols)
-      RENDERDOC_GetDeviceProtocolController(p);
-
     while(m_RemoteProbeSemaphore.available())
     {
-      // do a remoteProbe immediately to populate the device list on startup.
+      // check configured remote hosts without enumerating protocol devices in the background.
       remoteProbe();
 
-      // allow any early-init replay host switches now that we've populated the device list
+      // allow any early-init replay host switches now that the first status check has completed.
       m_RemoteInitialProbeReady.release();
 
       // do several small sleeps so we can respond quicker when we need to shut down
@@ -547,7 +541,7 @@ void MainWindow::on_action_Open_Capture_triggered()
 
   QString filename = RDDialog::getOpenFileName(
       this, tr("Select file to open"), m_Ctx.Config().LastCaptureFilePath,
-      tr("Capture Files (*.dat);;Image Files (*.dds *.hdr *.exr *.bmp *.jpg "
+      tr("Capture Files (*.rdc);;Image Files (*.dds *.hdr *.exr *.bmp *.jpg "
          "*.jpeg *.png *.tga *.gif *.psd);;All Files (*)"));
 
   if(!filename.isEmpty())
@@ -1015,7 +1009,7 @@ QString MainWindow::GetSavePath(QString title, QString filter)
     title = tr("Save Capture As");
 
   if(filter.isEmpty())
-    filter = tr("Capture Files (*.dat)");
+    filter = tr("Capture Files (*.rdc)");
 
   QString filename = RDDialog::getSaveFileName(this, title, dir, filter);
 
@@ -1830,9 +1824,6 @@ void MainWindow::remoteProbe()
 {
   if(!m_Ctx.IsCaptureLoaded() && !m_Ctx.IsCaptureLoading())
   {
-    m_Ctx.Config().UpdateEnumeratedProtocolDevices();
-
-    // fetch the latest list
     rdcarray<RemoteHost> hosts = m_Ctx.Config().GetRemoteHosts();
 
     for(RemoteHost &host : hosts)
@@ -2214,6 +2205,7 @@ void MainWindow::switchContext()
 
 void MainWindow::contextChooser_menuShowing()
 {
+  m_Ctx.Config().UpdateEnumeratedProtocolDevices();
   FillRemotesMenu(contextChooserMenu, true);
 }
 

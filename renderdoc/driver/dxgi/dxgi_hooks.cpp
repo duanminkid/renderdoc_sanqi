@@ -27,6 +27,46 @@
 #include "hooks/hooks.h"
 #include "dxgi_wrapped.h"
 
+static void SQCChainLog(const char *msg)
+{
+  char path[MAX_PATH] = {};
+  GetTempPathA(MAX_PATH, path);
+  strcat_s(path, MAX_PATH, "sqc_hook_chain.txt");
+
+  HANDLE h = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if(h == INVALID_HANDLE_VALUE)
+    return;
+
+  char buf[512] = {};
+  DWORD written = 0;
+  wsprintfA(buf, "[SQC-CHAIN] tick=%u pid=%u %s\r\n", GetTickCount(), GetCurrentProcessId(), msg);
+  WriteFile(h, buf, lstrlenA(buf), &written, NULL);
+  CloseHandle(h);
+}
+
+template <typename FuncType>
+static FuncType SQCResolveRealDXGIExport(const char *function, void *hook)
+{
+  ScopedSuppressHooking suppress;
+
+  HMODULE dxgi = GetModuleHandleA("dxgi.dll");
+  if(dxgi == NULL)
+    dxgi = LoadLibraryExA("dxgi.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+
+  FARPROC proc = dxgi ? GetProcAddress(dxgi, function) : NULL;
+
+  char msg[512] = {};
+  wsprintfA(msg, "ResolveRealDXGIExport function=%s module=%p proc=%p hook=%p", function, dxgi,
+            proc, hook);
+  SQCChainLog(msg);
+
+  if(proc == NULL || proc == (FARPROC)hook)
+    return NULL;
+
+  return (FuncType)proc;
+}
+
 typedef HRESULT(WINAPI *PFN_CREATE_DXGI_FACTORY)(REFIID, void **);
 typedef HRESULT(WINAPI *PFN_CREATE_DXGI_FACTORY2)(UINT, REFIID, void **);
 typedef HRESULT(WINAPI *PFN_GET_DEBUG_INTERFACE)(REFIID, void **);
@@ -247,6 +287,7 @@ class DXGIHook : LibraryHook
 public:
   void RegisterHooks()
   {
+    SQCChainLog("DXGIHook::RegisterHooks");
     RDCLOG("Registering DXGI hooks");
 
     LibraryHooks::RegisterLibraryHook("dxgi.dll", NULL);
@@ -272,36 +313,220 @@ private:
 
   static HRESULT WINAPI CreateDXGIFactory_hook(__in REFIID riid, __out void **ppFactory)
   {
+    static thread_local bool inFactory = false;
+    static thread_local bool inGuardFallback = false;
+    SQCChainLog("CreateDXGIFactory_hook hit");
     if(ppFactory)
       *ppFactory = NULL;
-    HRESULT ret = dxgihooks.CreateDXGIFactory()(riid, ppFactory);
 
+    if(inFactory)
+    {
+      if(inGuardFallback)
+      {
+        SQCChainLog("CreateDXGIFactory recursion guard bounced, aborting");
+        return E_FAIL;
+      }
+
+      SQCChainLog("CreateDXGIFactory recursion guard");
+      PFN_CREATE_DXGI_FACTORY real = SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY>(
+          "CreateDXGIFactory", (void *)&CreateDXGIFactory_hook);
+      if(real == NULL)
+        return E_FAIL;
+
+      ScopedSuppressHooking suppress;
+      inGuardFallback = true;
+      HRESULT ret = real(riid, ppFactory);
+      inGuardFallback = false;
+      return ret;
+    }
+
+    PFN_CREATE_DXGI_FACTORY saved = dxgihooks.CreateDXGIFactory();
+    {
+      char msg[256] = {};
+      wsprintfA(msg, "CreateDXGIFactory saved=%p hook=%p", saved, &CreateDXGIFactory_hook);
+      SQCChainLog(msg);
+    }
+
+    if(saved == (PFN_CREATE_DXGI_FACTORY)&CreateDXGIFactory_hook)
+    {
+      SQCChainLog("CreateDXGIFactory saved points to hook, resolving export");
+      saved = SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY>("CreateDXGIFactory",
+                                                                (void *)&CreateDXGIFactory_hook);
+      dxgihooks.CreateDXGIFactory.SetFuncPtr((void *)saved);
+    }
+
+    if(saved == NULL)
+    {
+      SQCChainLog("CreateDXGIFactory no valid real target");
+      return E_FAIL;
+    }
+
+    SQCChainLog("CreateDXGIFactory before real");
+    HRESULT ret = E_FAIL;
+    {
+      ScopedSuppressHooking suppress;
+      inFactory = true;
+      ret = saved(riid, ppFactory);
+      inFactory = false;
+    }
+    {
+      char msg[256] = {};
+      wsprintfA(msg, "CreateDXGIFactory after real hr=0x%08X factory=%p", (unsigned int)ret,
+                ppFactory ? *ppFactory : NULL);
+      SQCChainLog(msg);
+    }
+
+    SQCChainLog("CreateDXGIFactory before HandleWrap");
     if(SUCCEEDED(ret))
       RefCountDXGIObject::HandleWrap("CreateDXGIFactory", riid, ppFactory);
+    SQCChainLog("CreateDXGIFactory after HandleWrap");
 
     return ret;
   }
 
   static HRESULT WINAPI CreateDXGIFactory1_hook(__in REFIID riid, __out void **ppFactory)
   {
+    static thread_local bool inFactory = false;
+    static thread_local bool inGuardFallback = false;
+    SQCChainLog("CreateDXGIFactory1_hook hit");
     if(ppFactory)
       *ppFactory = NULL;
-    HRESULT ret = dxgihooks.CreateDXGIFactory1()(riid, ppFactory);
 
+    if(inFactory)
+    {
+      if(inGuardFallback)
+      {
+        SQCChainLog("CreateDXGIFactory1 recursion guard bounced, aborting");
+        return E_FAIL;
+      }
+
+      SQCChainLog("CreateDXGIFactory1 recursion guard");
+      PFN_CREATE_DXGI_FACTORY real = SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY>(
+          "CreateDXGIFactory1", (void *)&CreateDXGIFactory1_hook);
+      if(real == NULL)
+        return E_FAIL;
+
+      ScopedSuppressHooking suppress;
+      inGuardFallback = true;
+      HRESULT ret = real(riid, ppFactory);
+      inGuardFallback = false;
+      return ret;
+    }
+
+    PFN_CREATE_DXGI_FACTORY saved = dxgihooks.CreateDXGIFactory1();
+    {
+      char msg[256] = {};
+      wsprintfA(msg, "CreateDXGIFactory1 saved=%p hook=%p", saved, &CreateDXGIFactory1_hook);
+      SQCChainLog(msg);
+    }
+
+    if(saved == (PFN_CREATE_DXGI_FACTORY)&CreateDXGIFactory1_hook)
+    {
+      SQCChainLog("CreateDXGIFactory1 saved points to hook, resolving export");
+      saved = SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY>("CreateDXGIFactory1",
+                                                                (void *)&CreateDXGIFactory1_hook);
+      dxgihooks.CreateDXGIFactory1.SetFuncPtr((void *)saved);
+    }
+
+    if(saved == NULL)
+    {
+      SQCChainLog("CreateDXGIFactory1 no valid real target");
+      return E_FAIL;
+    }
+
+    SQCChainLog("CreateDXGIFactory1 before real");
+    HRESULT ret = E_FAIL;
+    {
+      ScopedSuppressHooking suppress;
+      inFactory = true;
+      ret = saved(riid, ppFactory);
+      inFactory = false;
+    }
+    {
+      char msg[256] = {};
+      wsprintfA(msg, "CreateDXGIFactory1 after real hr=0x%08X factory=%p", (unsigned int)ret,
+                ppFactory ? *ppFactory : NULL);
+      SQCChainLog(msg);
+    }
+
+    SQCChainLog("CreateDXGIFactory1 before HandleWrap");
     if(SUCCEEDED(ret))
       RefCountDXGIObject::HandleWrap("CreateDXGIFactory1", riid, ppFactory);
+    SQCChainLog("CreateDXGIFactory1 after HandleWrap");
 
     return ret;
   }
 
   static HRESULT WINAPI CreateDXGIFactory2_hook(UINT Flags, REFIID riid, void **ppFactory)
   {
+    static thread_local bool inFactory = false;
+    static thread_local bool inGuardFallback = false;
+    SQCChainLog("CreateDXGIFactory2_hook hit");
     if(ppFactory)
       *ppFactory = NULL;
-    HRESULT ret = dxgihooks.CreateDXGIFactory2()(Flags, riid, ppFactory);
 
+    if(inFactory)
+    {
+      if(inGuardFallback)
+      {
+        SQCChainLog("CreateDXGIFactory2 recursion guard bounced, aborting");
+        return E_FAIL;
+      }
+
+      SQCChainLog("CreateDXGIFactory2 recursion guard");
+      PFN_CREATE_DXGI_FACTORY2 real = SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY2>(
+          "CreateDXGIFactory2", (void *)&CreateDXGIFactory2_hook);
+      if(real == NULL)
+        return E_FAIL;
+
+      ScopedSuppressHooking suppress;
+      inGuardFallback = true;
+      HRESULT ret = real(Flags, riid, ppFactory);
+      inGuardFallback = false;
+      return ret;
+    }
+
+    PFN_CREATE_DXGI_FACTORY2 saved = dxgihooks.CreateDXGIFactory2();
+    {
+      char msg[256] = {};
+      wsprintfA(msg, "CreateDXGIFactory2 saved=%p hook=%p flags=0x%X", saved,
+                &CreateDXGIFactory2_hook, Flags);
+      SQCChainLog(msg);
+    }
+
+    if(saved == (PFN_CREATE_DXGI_FACTORY2)&CreateDXGIFactory2_hook)
+    {
+      SQCChainLog("CreateDXGIFactory2 saved points to hook, resolving export");
+      saved = SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY2>("CreateDXGIFactory2",
+                                                                 (void *)&CreateDXGIFactory2_hook);
+      dxgihooks.CreateDXGIFactory2.SetFuncPtr((void *)saved);
+    }
+
+    if(saved == NULL)
+    {
+      SQCChainLog("CreateDXGIFactory2 no valid real target");
+      return E_FAIL;
+    }
+
+    SQCChainLog("CreateDXGIFactory2 before real");
+    HRESULT ret = E_FAIL;
+    {
+      ScopedSuppressHooking suppress;
+      inFactory = true;
+      ret = saved(Flags, riid, ppFactory);
+      inFactory = false;
+    }
+    {
+      char msg[256] = {};
+      wsprintfA(msg, "CreateDXGIFactory2 after real hr=0x%08X factory=%p", (unsigned int)ret,
+                ppFactory ? *ppFactory : NULL);
+      SQCChainLog(msg);
+    }
+
+    SQCChainLog("CreateDXGIFactory2 before HandleWrap");
     if(SUCCEEDED(ret))
       RefCountDXGIObject::HandleWrap("CreateDXGIFactory2", riid, ppFactory);
+    SQCChainLog("CreateDXGIFactory2 after HandleWrap");
 
     return ret;
   }

@@ -58,6 +58,9 @@ rdcstr GetEnvVariable(const rdcstr &name);
 
 uint64_t GetMemoryUsage();
 
+bool IsInjectionBlockedProcessText(const rdcstr &text);
+bool IsInjectionBlockedProcess(uint32_t pid);
+
 bool CanGlobalHook();
 RDResult StartGlobalHook(const rdcstr &pathmatch, const rdcstr &capturefile,
                          const CaptureOptions &opts);
@@ -82,6 +85,11 @@ rdcpair<RDResult, uint32_t> LaunchAndInjectIntoProcess(const rdcstr &app, const 
                                                        const rdcarray<EnvironmentModification> &env,
                                                        const rdcstr &capturefile,
                                                        const CaptureOptions &opts, bool waitForExit);
+rdcpair<RDResult, uint32_t> LaunchWithD3D11Proxy(const rdcstr &app, const rdcstr &workingDir,
+                                                 const rdcstr &cmdLine,
+                                                 const rdcarray<EnvironmentModification> &env,
+                                                 const rdcstr &capturefile,
+                                                 const CaptureOptions &opts, bool waitForExit);
 bool IsModuleLoaded(const rdcstr &module);
 void *LoadModule(const rdcstr &module);
 void *GetFunctionAddress(void *module, const rdcstr &function);

@@ -265,10 +265,6 @@ replacements = [
     (b'rdocFilter',   b'sqcpFilter'),
     (b'rdocLayout',   b'sqcpLayout'),
 
-    # File extension .rdc in non-null-terminated contexts
-    (b'.rdc<',  b'.dat<'),
-    (b' rdc ',  b' sqc '),
-
     # Error message strings with RDC
     (b'Native RDC capture', b'Native SQC capture'),
     (b'RDC capture',        b'SQC capture'),
@@ -316,21 +312,6 @@ replacements = [
     # After VK_LAYER->VK_SQCAP transforms, residual SystemLoad in function names
     (b'VK_SQCAP_SQC___SystemLoad____', b'VK_SQCAP_SQC___SqcLayerVk____'),
 
-    # File extensions - .rdc in various trailing contexts
-    (b'.rdc\x00', b'.dat\x00'),
-    (b'.rdc)',  b'.dat)'),
-    (b'.rdc"',  b'.dat"'),
-    (b".rdc'",  b".dat'"),
-    (b'.rdc\r', b'.dat\r'),
-    (b'.rdc\n', b'.dat\n'),
-    (b'.rdc;',  b'.dat;'),
-    # rdc as standalone null-terminated string (appears split from format string)
-    (b"\x00rdc\x00", b"\x00dat\x00"),   # 5 bytes - 'rdc' alone between null terminators
-    # rdc wrapped in single quotes (filetype detection strings)
-    (b"'rdc'",  b"'dat'"),               # 5 bytes
-    # rdc as XML node name
-    (b"<rdc>",  b"<dat>"),               # 5 bytes
-
     # PDB path
     (b'd3d11_proxy.pdb', b'sqc_d3d11__.pdb'),
     (b'system_load.pdb', b'sqclib_data.pdb'),   # 15 bytes
@@ -364,9 +345,6 @@ replacements = [
     wp('RENDERDOC_',     'SQC_LAYER_'),
     wp('VK_LAYER_RENDERDOC_Capture', 'VK_LAYER_SQCAPTURE_Capture'),
     wp('VK_LAYER',       'VK_SQCAP'),
-    wp('.rdc)',          '.dat)'),
-    wp('.rdc"',          '.dat"'),
-    wp('.rdc\x00',       '.dat\x00'),
 
     # =========================================================
     # PHASE 9: Remaining rdc*/RDC* signatures
@@ -386,28 +364,12 @@ replacements = [
     # Source file path in embedded debug/assert strings
     (b'rdcbytetrie', b'sqcbytetrie'),  # 11 bytes
 
-    # UI file extension strings (sanqicapture.exe / qsanqiInjectTool.exe)
-    (b'<filename.rdc>', b'<filename.dat>'),  # 14 bytes
-    (b'<capture.rdc>',  b'<capture.dat>'),   # 13 bytes
-
-    # Python docstring references (`` ``rdc`` `` inline code spans)
-    (b'``rdc``', b'``dat``'),  # 7 bytes
-
-    # .rdc in running prose (Python docstrings)
-    (b'.rdc and', b'.dat and'),  # 8 bytes
-    (b' to .rdc', b' to .dat'),  # 8 bytes
-    (b'a .rdc\x00', b'a .dat\x00'), # 7 bytes null-terminated
-    (b'rdc.\x00',   b'dat.\x00'),   # 5 bytes
-
     # Standalone RDC references in docstrings
     (b'native RDC ', b'native SQC '),  # 11 bytes
     (b'native RDC.', b'native SQC.'),  # 11 bytes
     (b'native RDC\n', b'native SQC\n'), # 11 bytes
     (b'in the RDC.', b'in the SQC.'),  # 11 bytes
     (b' native RDC', b' native SQC'),  # 11 bytes
-
-    # 'rdc' as a standalone word in save dialog / format strings
-    (b'rdc|This',   b'dat|This'),   # 8 bytes
 
     # =========================================================
     # PHASE 10: SanQi / SanQiCapture brand strings

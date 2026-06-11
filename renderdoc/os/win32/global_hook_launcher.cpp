@@ -29,6 +29,8 @@
 #include <stdio.h>
 #include <string>
 #include <vector>
+#include "os/os_specific.h"
+#include "strings/string_utils.h"
 
 class GlobalHookLauncher
 {
@@ -87,6 +89,12 @@ private:
     
     static void TryInjectIntoProcess(DWORD processId)
     {
+        if(Process::IsInjectionBlockedProcess(processId))
+        {
+            printf("Skipping blocked process %d\n", processId);
+            return;
+        }
+
         // Get process handle
         HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, processId);
         if (hProcess == NULL)

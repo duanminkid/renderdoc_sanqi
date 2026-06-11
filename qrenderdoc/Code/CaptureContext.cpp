@@ -293,7 +293,7 @@ rdcstr CaptureContext::TempCaptureFilename(const rdcstr &appname)
   }
 
   return dir.absoluteFilePath(
-      QFormatStr("%1_%2.dat")
+      QFormatStr("%1_%2.rdc")
           .arg(appname)
           .arg(QDateTime::currentDateTimeUtc().toString(lit("yyyy.MM.dd_HH.mm.ss"))));
 }

@@ -42,15 +42,111 @@
 // map from address of IAT entry, to original contents
 std::map<void **, void *> s_InstalledHooks;
 Threading::CriticalSection installedLock;
+static thread_local int s_SuppressHooking = 0;
 
-bool ApplyHook(FunctionHook &hook, void **IATentry, bool &already)
+static void SQCChainLog(const char *msg)
+{
+  static const bool enabled = []() {
+    char value[16] = {};
+    DWORD len = GetEnvironmentVariableA("SQC_DIAG_HOOK_CHAIN", value, sizeof(value));
+    return len > 0 && _stricmp(value, "0") != 0 && _stricmp(value, "false") != 0 &&
+           _stricmp(value, "off") != 0;
+  }();
+
+  if(!enabled)
+    return;
+
+  char path[MAX_PATH] = {};
+  GetTempPathA(MAX_PATH, path);
+  strcat_s(path, MAX_PATH, "sqc_hook_chain.txt");
+
+  HANDLE h = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if(h == INVALID_HANDLE_VALUE)
+    return;
+
+  char buf[512] = {};
+  DWORD written = 0;
+  wsprintfA(buf, "[SQC-CHAIN] tick=%u pid=%u %s\r\n", GetTickCount(), GetCurrentProcessId(), msg);
+  WriteFile(h, buf, lstrlenA(buf), &written, NULL);
+  CloseHandle(h);
+}
+
+static bool ShouldSkipFunctionHook(const char *modName, const char *dllName, const char *function)
+{
+  if(modName == NULL || dllName == NULL || function == NULL)
+    return false;
+
+  rdcstr lowerModName = strlower(rdcstr(modName));
+  if(strstr(lowerModName.c_str(), "gameoverlayrenderer") != NULL)
+  {
+    char msg[512] = {};
+    wsprintfA(msg, "ApplyHooks skip overlay function module=%s import=%s function=%s", modName,
+              dllName, function);
+    SQCChainLog(msg);
+    return true;
+  }
+
+  return false;
+}
+
+static bool IsLoaderHookLibrary(const char *dllName)
+{
+  if(dllName == NULL)
+    return false;
+
+  return !_stricmp(dllName, "kernel32.dll") ||
+         _strnicmp(dllName, "api-ms-win-core-libraryloader-", 30) == 0;
+}
+
+static void *FetchOriginalFunction(HMODULE module, const FunctionHook &hook)
+{
+  ScopedSuppressHooking suppress;
+  FARPROC proc = GetProcAddress(module, hook.function.c_str());
+
+  if(proc != NULL && proc == (FARPROC)hook.hook)
+  {
+    char msg[512] = {};
+    wsprintfA(msg, "FetchOriginalFunction self-hook libraryModule=%p function=%s hook=%p", module,
+              hook.function.c_str(), hook.hook);
+    SQCChainLog(msg);
+    return NULL;
+  }
+
+  return (void *)proc;
+}
+
+static bool IsDXGIFactoryFunction(const char *func)
+{
+  return func && (!_stricmp(func, "CreateDXGIFactory") ||
+                  !_stricmp(func, "CreateDXGIFactory1") ||
+                  !_stricmp(func, "CreateDXGIFactory2"));
+}
+
+bool ApplyHook(FunctionHook &hook, void **IATentry, bool &already, const char *modName,
+               const char *dllName)
 {
   DWORD oldProtection = PAGE_EXECUTE;
+
+  if(ShouldSkipFunctionHook(modName, dllName, hook.function.c_str()))
+    return true;
 
   if(*IATentry == hook.hook)
   {
     already = true;
     return true;
+  }
+
+  if(hook.function == "D3D11CreateDevice" ||
+     hook.function == "D3D11CreateDeviceAndSwapChain" ||
+     hook.function == "CreateDXGIFactory" || hook.function == "CreateDXGIFactory1" ||
+     hook.function == "CreateDXGIFactory2" || hook.function == "GetProcAddress")
+  {
+    char msg[512] = {};
+    wsprintfA(msg, "ApplyHook module=%s import=%s function=%s iat=%p hook=%p",
+              modName ? modName : "<null>", dllName ? dllName : "<null>", hook.function.c_str(),
+              IATentry, hook.hook);
+    SQCChainLog(msg);
   }
 
 #if ENABLED(VERBOSE_DEBUG_HOOK)
@@ -153,7 +249,6 @@ struct CachedHookData
   std::map<rdcstr, DllHookset> DllHooks;
   HMODULE ownmodule = NULL;
   Threading::CriticalSection lock;
-  char lowername[512] = {};
 
   std::set<rdcstr> ignores;
 
@@ -164,9 +259,10 @@ struct CachedHookData
 
   void ApplyHooks(const char *modName, HMODULE module)
   {
+    char lowername[512] = {};
     {
       size_t i = 0;
-      while(modName[i])
+      while(modName[i] && i < sizeof(lowername) - 1)
       {
         lowername[i] = (char)tolower(modName[i]);
         i++;
@@ -184,11 +280,25 @@ struct CachedHookData
     // and we can call them and have fraps + renderdoc playing nicely together.
     // we also exclude some other overlay renderers here, such as steam's
     //
-    // Also we exclude ourselves here - just in case the application has already loaded
-    // renderdoc.dll, or tries to load it.
-    if(strstr(lowername, "fraps") || strstr(lowername, "gameoverlayrenderer") ||
-       strstr(lowername, STRINGIZE(RDOC_BASE_NAME) ".dll") == lowername)
+    // Also exclude ourselves. This fork's capture DLL is renamed, so matching only
+    // RDOC_BASE_NAME.dll is not enough.
+    if(module == ownmodule)
+    {
+      char msg[512] = {};
+      wsprintfA(msg, "ApplyHooks skip own module=%s module=%p", modName, module);
+      SQCChainLog(msg);
       return;
+    }
+
+    if(strstr(lowername, "fraps") || strstr(lowername, "gameoverlayrenderer") ||
+       strstr(lowername, STRINGIZE(RDOC_BASE_NAME) ".dll") == lowername ||
+       strstr(lowername, "system_load.dll") || strstr(lowername, "d3d11_proxy.dll"))
+    {
+      char msg[512] = {};
+      wsprintfA(msg, "ApplyHooks skip overlay/self module=%s module=%p", modName, module);
+      SQCChainLog(msg);
+      return;
+    }
 
     // set module pointer if we are hooking exports from this module
     for(auto it = DllHooks.begin(); it != DllHooks.end(); ++it)
@@ -207,7 +317,7 @@ struct CachedHookData
           for(FunctionHook &hook : it->second.FunctionHooks)
           {
             if(hook.orig && *hook.orig == NULL)
-              *hook.orig = GetProcAddress(module, hook.function.c_str());
+              *hook.orig = FetchOriginalFunction(module, hook);
           }
 
           it->second.FetchOrdinalNames();
@@ -254,7 +364,7 @@ struct CachedHookData
             for(FunctionHook &hook : it->second.FunctionHooks)
             {
               if(hook.orig)
-                *hook.orig = GetProcAddress(module, hook.function.c_str());
+                *hook.orig = FetchOriginalFunction(module, hook);
             }
 
             it->second.module = module;
@@ -288,23 +398,28 @@ struct CachedHookData
     if(modpath[0] == 0)
       return;
 
+    bool isWindowsSystemModule = false;
+    wchar_t lowerModPath[1024] = {};
+    {
+      size_t i = 0;
+      while(modpath[i])
+      {
+        lowerModPath[i] = towlower(modpath[i]);
+        i++;
+      }
+      lowerModPath[i] = 0;
+
+      isWindowsSystemModule = wcsstr(lowerModPath, L"\\windows\\system32\\") != NULL ||
+                              wcsstr(lowerModPath, L"\\windows\\syswow64\\") != NULL;
+    }
+
     // windows 11 and newer versions have weird hotpatch DLLs that don't act like real DLLs. The
     // LoadLibraryW below will fail for these DLLs even when using the module path provided.
     // Only check the path for DLLs that might be a windows-hotpatch but if it matches we'll skip
     // hooking these to avoid problems
     if(strstr(lowername, "hotpatch"))
     {
-      wchar_t lowerpath[1024] = {};
-
-      size_t i = 0;
-      while(modpath[i])
-      {
-        lowerpath[i] = towlower(modpath[i]);
-        i++;
-      }
-      lowerpath[i] = 0;
-
-      if(wcsstr(lowerpath, L"\\windows\\winsxs\\"))
+      if(wcsstr(lowerModPath, L"\\windows\\winsxs\\"))
         return;
     }
 
@@ -354,6 +469,35 @@ struct CachedHookData
       for(auto it = DllHooks.begin(); it != DllHooks.end(); ++it)
         if(!_stricmp(it->first.c_str(), dllName))
           hookset = &it->second;
+
+      if(hookset && !_stricmp(modName, dllName))
+      {
+        if(!_stricmp(dllName, "d3d11.dll") || !_stricmp(dllName, "dxgi.dll"))
+        {
+          char msg[256] = {};
+          wsprintfA(msg, "ApplyHooks skip self import module=%s import=%s", modName, dllName);
+          SQCChainLog(msg);
+        }
+
+        hookset = NULL;
+      }
+
+      if(hookset && isWindowsSystemModule && IsLoaderHookLibrary(dllName))
+      {
+        char msg[256] = {};
+        wsprintfA(msg, "ApplyHooks skip system loader module=%s import=%s", modName, dllName);
+        SQCChainLog(msg);
+        hookset = NULL;
+      }
+
+      if(hookset && isWindowsSystemModule &&
+         (!_stricmp(dllName, "d3d11.dll") || !_stricmp(dllName, "dxgi.dll")))
+      {
+        char msg[256] = {};
+        wsprintfA(msg, "ApplyHooks skip system module=%s import=%s", modName, dllName);
+        SQCChainLog(msg);
+        hookset = NULL;
+      }
 
       if(hookset && importDesc->OriginalFirstThunk > 0)
       {
@@ -414,11 +558,18 @@ struct CachedHookData
                   if(found != hookset->FunctionHooks.end() &&
                      !strcmp(found->function.c_str(), importName) && ownmodule != module)
                   {
+                    if(ShouldSkipFunctionHook(modName, dllName, found->function.c_str()))
+                    {
+                      origFirst++;
+                      first++;
+                      continue;
+                    }
+
                     bool already = false;
                     bool applied;
                     {
                       SCOPED_LOCK(lock);
-                      applied = ApplyHook(*found, IATentry, already);
+                      applied = ApplyHook(*found, IATentry, already, modName, dllName);
                     }
 
                     // if we failed, or if it's already set and we're not doing a missedOrdinals
@@ -477,12 +628,19 @@ struct CachedHookData
           if(found != hookset->FunctionHooks.end() &&
              !strcmp(found->function.c_str(), importName) && ownmodule != module)
           {
+            if(ShouldSkipFunctionHook(modName, dllName, found->function.c_str()))
+            {
+              origFirst++;
+              first++;
+              continue;
+            }
+
             bool already = false;
             bool applied;
             {
-              SCOPED_LOCK(lock);
-              applied = ApplyHook(*found, IATentry, already);
-            }
+                SCOPED_LOCK(lock);
+                applied = ApplyHook(*found, IATentry, already, modName, dllName);
+              }
 
             // if we failed, or if it's already set and we're not doing a missedOrdinals
             // second pass, then just bail out immediately as we've already hooked this
@@ -610,7 +768,7 @@ static void HookAllModules()
       for(FunctionHook &hook : it->second.FunctionHooks)
       {
         if(hook.orig && *hook.orig == NULL)
-          *hook.orig = GetProcAddress(it->second.module, hook.function.c_str());
+          *hook.orig = FetchOriginalFunction(it->second.module, hook);
       }
     }
 
@@ -657,6 +815,9 @@ static bool IsAPISet(const char *filename)
 
 HMODULE WINAPI Hooked_LoadLibraryExA(LPCSTR lpLibFileName, HANDLE fileHandle, DWORD flags)
 {
+  if(s_SuppressHooking > 0)
+    return LoadLibraryExA(lpLibFileName, fileHandle, flags);
+
   bool dohook = true;
 
   if(s_HookData->libraryIntercept)
@@ -692,6 +853,9 @@ HMODULE WINAPI Hooked_LoadLibraryExA(LPCSTR lpLibFileName, HANDLE fileHandle, DW
 
 HMODULE WINAPI Hooked_LoadLibraryExW(LPCWSTR lpLibFileName, HANDLE fileHandle, DWORD flags)
 {
+  if(s_SuppressHooking > 0)
+    return LoadLibraryExW(lpLibFileName, fileHandle, flags);
+
   bool dohook = true;
 
   if(s_HookData->libraryIntercept)
@@ -763,6 +927,9 @@ static bool OrdinalAsString(void *func)
 
 FARPROC WINAPI Hooked_GetProcAddress(HMODULE mod, LPCSTR func)
 {
+  if(s_SuppressHooking > 0)
+    return GetProcAddress(mod, func);
+
   if(mod == NULL || func == NULL || mod == s_HookData->ownmodule)
     return GetProcAddress(mod, func);
 
@@ -786,7 +953,7 @@ FARPROC WINAPI Hooked_GetProcAddress(HMODULE mod, LPCSTR func)
         for(FunctionHook &hook : it->second.FunctionHooks)
         {
           if(hook.orig && *hook.orig == NULL)
-            *hook.orig = GetProcAddress(it->second.module, hook.function.c_str());
+            *hook.orig = FetchOriginalFunction(it->second.module, hook);
         }
 
         it->second.FetchOrdinalNames();
@@ -848,7 +1015,33 @@ FARPROC WINAPI Hooked_GetProcAddress(HMODULE mod, LPCSTR func)
           std::lower_bound(it->second.FunctionHooks.begin(), it->second.FunctionHooks.end(), search);
       if(found != it->second.FunctionHooks.end() && !(search < *found))
       {
-        FARPROC realfunc = GetProcAddress(mod, func);
+        FARPROC realfunc = NULL;
+        {
+          ScopedSuppressHooking suppress;
+          realfunc = GetProcAddress(mod, func);
+        }
+
+        if(!_stricmp(it->first.c_str(), "dxgi.dll") && IsDXGIFactoryFunction(func))
+        {
+          static bool loggedFactory = false;
+          static bool loggedFactory1 = false;
+          static bool loggedFactory2 = false;
+          bool *logged = !_stricmp(func, "CreateDXGIFactory")     ? &loggedFactory
+                         : !_stricmp(func, "CreateDXGIFactory1") ? &loggedFactory1
+                                                                  : &loggedFactory2;
+
+          if(!*logged)
+          {
+            char msg[512] = {};
+            wsprintfA(msg, "Hooked_GetProcAddress bypass DXGI factory function=%s real=%p hook=%p",
+                      func, realfunc, found->hook);
+            SQCChainLog(msg);
+            *logged = true;
+          }
+
+          SetLastError(S_OK);
+          return realfunc;
+        }
 
 #if ENABLED(VERBOSE_DEBUG_HOOK)
         RDCDEBUG("Found hooked function, returning hook pointer %p", found->hook);
@@ -926,6 +1119,17 @@ void LibraryHooks::RegisterFunctionHook(const char *libraryName, const FunctionH
     }
   }
   s_HookData->DllHooks[strlower(rdcstr(libraryName))].FunctionHooks.push_back(hook);
+
+  if(hook.function == "D3D11CreateDevice" ||
+     hook.function == "D3D11CreateDeviceAndSwapChain" ||
+     hook.function == "CreateDXGIFactory" || hook.function == "CreateDXGIFactory1" ||
+     hook.function == "CreateDXGIFactory2")
+  {
+    char msg[256] = {};
+    wsprintfA(msg, "RegisterFunctionHook library=%s function=%s", libraryName,
+              hook.function.c_str());
+    SQCChainLog(msg);
+  }
 }
 
 void LibraryHooks::RegisterLibraryHook(const char *libraryName, FunctionLoadCallback loadedCallback)
@@ -945,6 +1149,7 @@ void LibraryHooks::IgnoreLibrary(const char *libraryName)
 
 void LibraryHooks::BeginHookRegistration()
 {
+  SQCChainLog("BeginHookRegistration");
   InitHookData();
 }
 
@@ -952,6 +1157,7 @@ void LibraryHooks::BeginHookRegistration()
 // some of these hooks (as above) will hook LoadLibrary/GetProcAddress, to protect
 void LibraryHooks::EndHookRegistration()
 {
+  SQCChainLog("EndHookRegistration begin");
   for(auto it = s_HookData->DllHooks.begin(); it != s_HookData->DllHooks.end(); ++it)
     std::sort(it->second.FunctionHooks.begin(), it->second.FunctionHooks.end());
 
@@ -960,6 +1166,7 @@ void LibraryHooks::EndHookRegistration()
 #endif
 
   HookAllModules();
+  SQCChainLog("EndHookRegistration after first HookAllModules");
 
   if(s_HookData->missedOrdinals)
   {
@@ -972,7 +1179,10 @@ void LibraryHooks::EndHookRegistration()
     HookAllModules();
 
     s_HookData->missedOrdinals = false;
+    SQCChainLog("EndHookRegistration after ordinal retry");
   }
+
+  SQCChainLog("EndHookRegistration done");
 }
 
 void LibraryHooks::Refresh()
@@ -1046,7 +1256,7 @@ void Win32_ManualHookModule(rdcstr modName, HMODULE module)
   for(FunctionHook &hook : s_HookData->DllHooks[modName].FunctionHooks)
   {
     if(hook.orig)
-      *hook.orig = GetProcAddress(module, hook.function.c_str());
+      *hook.orig = FetchOriginalFunction(module, hook);
   }
 
   s_HookData->ApplyHooks(modName.c_str(), module);
@@ -1055,8 +1265,10 @@ void Win32_ManualHookModule(rdcstr modName, HMODULE module)
 // android only hooking functions, not used on win32
 ScopedSuppressHooking::ScopedSuppressHooking()
 {
+  s_SuppressHooking++;
 }
 
 ScopedSuppressHooking::~ScopedSuppressHooking()
 {
+  s_SuppressHooking--;
 }

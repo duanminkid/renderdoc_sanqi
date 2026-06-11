@@ -326,8 +326,7 @@ private:
 
   static bool IsInjectionBlockedProcessText(const rdcstr &text)
   {
-    return text.contains("sanqicapture.exe") || text.contains("qsanqiinjecttool.exe") ||
-           text.contains("unitycrashhandler64.exe") || text.contains("unitycrashhandler64");
+    return Process::IsInjectionBlockedProcessText(text);
   }
 
   static bool ShouldInject(LPCWSTR lpApplicationName, LPCWSTR lpCommandLine)

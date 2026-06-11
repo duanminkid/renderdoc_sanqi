@@ -1,19 +1,19 @@
 {
   "file_format_version" : "1.1.2",
   "layer" : {
-    "name": "VK_LAYER_CAPTURE",
+    "name": "VK_LAYER_MICROSOFT_SystemLoad",
     "type": "GLOBAL",
     "library_path": "@VULKAN_LAYER_MODULE_PATH@",
     "api_version": "1.4.324",
     "implementation_version": "@RENDERDOC_VERSION_MINOR@",
     "description": "Debugging capture layer",
     "functions": {
-      "vkGetInstanceProcAddr": "VK_LAYER_CAPTUREGetInstanceProcAddr",
-      "vkGetDeviceProcAddr": "VK_LAYER_CAPTUREGetDeviceProcAddr",
-      "vkNegotiateLoaderLayerInterfaceVersion": "VK_LAYER_CAPTURENegotiateLoaderLayerInterfaceVersion"
+      "vkGetInstanceProcAddr": "VK_LAYER_MICROSOFT_SystemLoadGetInstanceProcAddr",
+      "vkGetDeviceProcAddr": "VK_LAYER_MICROSOFT_SystemLoadGetDeviceProcAddr",
+      "vkNegotiateLoaderLayerInterfaceVersion": "VK_LAYER_MICROSOFT_SystemLoadNegotiateLoaderLayerInterfaceVersion"
     },
     "pre_instance_functions": {
-      "vkEnumerateInstanceExtensionProperties": "VK_LAYER_CAPTUREEnumerateInstanceExtensionProperties"
+      "vkEnumerateInstanceExtensionProperties": "VK_LAYER_MICROSOFT_SystemLoadEnumerateInstanceExtensionProperties"
     },
     "instance_extensions": [
       {
@@ -42,7 +42,7 @@
       "@VULKAN_ENABLE_VAR@": "1"
     },
     "disable_environment": {
-      "DISABLE_VULKAN_CAPTURE_@RENDERDOC_VERSION_MAJOR@_@RENDERDOC_VERSION_MINOR@": "1"
+      "DISABLE_VULKAN_SYSTEM_LOAD_CAPTURE_@RENDERDOC_VERSION_MAJOR@_@RENDERDOC_VERSION_MINOR@": "1"
     }
   }
 }

@@ -38,6 +38,7 @@ CaptureSettings::CaptureSettings()
 {
   inject = false;
   autoStart = false;
+  d3d11Proxy = false;
   queuedFrameCap = 0;
   numQueuedFrames = 0;
   RENDERDOC_GetDefaultCaptureOptions(&options);

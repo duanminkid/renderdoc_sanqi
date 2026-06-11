@@ -117,6 +117,11 @@ struct CaptureSettings
 :type: bool
 )");
   bool autoStart;
+  DOCUMENT(R"(``True`` if this launch should use a local D3D11 proxy DLL instead of remote injection.
+
+:type: bool
+)");
+  bool d3d11Proxy;
   DOCUMENT(R"(The path to the executable to run.
 
 :type: str

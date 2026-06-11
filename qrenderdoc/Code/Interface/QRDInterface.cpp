@@ -73,6 +73,7 @@ CaptureSettings::CaptureSettings()
 {
   inject = false;
   autoStart = false;
+  d3d11Proxy = false;
   queuedFrameCap = 0;
   numQueuedFrames = 0;
   RENDERDOC_GetDefaultCaptureOptions(&options);
@@ -84,6 +85,7 @@ CaptureSettings::operator QVariant() const
 
   ret[lit("inject")] = inject;
   ret[lit("autoStart")] = autoStart;
+  ret[lit("d3d11Proxy")] = d3d11Proxy;
 
   ret[lit("executable")] = executable;
   ret[lit("workingDir")] = workingDir;
@@ -121,6 +123,7 @@ CaptureSettings::CaptureSettings(const QVariant &v)
 
   inject = data[lit("inject")].toBool();
   autoStart = data[lit("autoStart")].toBool();
+  d3d11Proxy = data[lit("d3d11Proxy")].toBool();
 
   executable = data[lit("executable")].toString();
   workingDir = data[lit("workingDir")].toString();

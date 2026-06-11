@@ -28,6 +28,115 @@
 #include "hooks/hooks.h"
 #include "d3d11_device.h"
 
+static void SQCChainLog(const char *msg)
+{
+  char path[MAX_PATH] = {};
+  GetTempPathA(MAX_PATH, path);
+  strcat_s(path, MAX_PATH, "sqc_hook_chain.txt");
+
+  HANDLE h = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if(h == INVALID_HANDLE_VALUE)
+    return;
+
+  char buf[512] = {};
+  DWORD written = 0;
+  wsprintfA(buf, "[SQC-CHAIN] tick=%u pid=%u %s\r\n", GetTickCount(), GetCurrentProcessId(), msg);
+  WriteFile(h, buf, lstrlenA(buf), &written, NULL);
+  CloseHandle(h);
+}
+
+static FARPROC GetRawExport(HMODULE module, const char *name)
+{
+  if(module == NULL || name == NULL)
+    return NULL;
+
+  byte *baseAddress = (byte *)module;
+  PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)baseAddress;
+  if(dos->e_magic != IMAGE_DOS_SIGNATURE)
+    return NULL;
+
+  PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)(baseAddress + dos->e_lfanew);
+  if(nt->Signature != IMAGE_NT_SIGNATURE)
+    return NULL;
+
+  IMAGE_DATA_DIRECTORY exportDir =
+      nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+  if(exportDir.VirtualAddress == 0 || exportDir.Size == 0)
+    return NULL;
+
+  PIMAGE_EXPORT_DIRECTORY exports =
+      (PIMAGE_EXPORT_DIRECTORY)(baseAddress + exportDir.VirtualAddress);
+  DWORD *names = (DWORD *)(baseAddress + exports->AddressOfNames);
+  WORD *ordinals = (WORD *)(baseAddress + exports->AddressOfNameOrdinals);
+  DWORD *functions = (DWORD *)(baseAddress + exports->AddressOfFunctions);
+
+  for(DWORD i = 0; i < exports->NumberOfNames; i++)
+  {
+    const char *exportName = (const char *)(baseAddress + names[i]);
+    if(strcmp(exportName, name) != 0)
+      continue;
+
+    DWORD rva = functions[ordinals[i]];
+    if(rva >= exportDir.VirtualAddress && rva < exportDir.VirtualAddress + exportDir.Size)
+      return NULL;
+
+    return (FARPROC)(baseAddress + rva);
+  }
+
+  return NULL;
+}
+
+static bool IsOwnModuleProc(FARPROC proc)
+{
+  if(proc == NULL)
+    return false;
+
+  HMODULE procModule = NULL;
+  if(!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                             GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                         (LPCSTR)proc, &procModule))
+    return false;
+
+  HMODULE selfModule = NULL;
+  GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                         GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                     (LPCSTR)&SQCChainLog, &selfModule);
+
+  return procModule != NULL && procModule == selfModule;
+}
+
+static FARPROC GetSystemD3D11Proc(const char *name)
+{
+  static HMODULE d3d11 = NULL;
+
+  ScopedSuppressHooking suppress;
+
+  if(d3d11 == NULL)
+  {
+    char path[MAX_PATH] = {};
+    UINT len = GetSystemDirectoryA(path, MAX_PATH);
+    if(len > 0 && len < MAX_PATH)
+    {
+      strcat_s(path, MAX_PATH, "\\d3d11.dll");
+      d3d11 = LoadLibraryA(path);
+    }
+
+    if(d3d11 == NULL)
+      d3d11 = LoadLibraryA("d3d11.dll");
+  }
+
+  FARPROC proc = GetRawExport(d3d11, name);
+  if(proc == NULL)
+    proc = d3d11 ? GetProcAddress(d3d11, name) : NULL;
+
+  char msg[256] = {};
+  wsprintfA(msg, "GetSystemD3D11Proc name=%s module=%p proc=%p", name, d3d11, proc);
+  SQCChainLog(msg);
+
+  return proc;
+}
+
 ID3DDevice *GetD3D11DeviceIfAlloc(IUnknown *dev)
 {
   if(WrappedID3D11Device::IsAlloc(dev))
@@ -41,6 +150,7 @@ class D3D11Hook : LibraryHook
 public:
   void RegisterHooks()
   {
+    SQCChainLog("D3D11Hook::RegisterHooks");
     RDCLOG("Registering D3D11 hooks");
 
     WrappedIDXGISwapChain4::RegisterD3DDeviceCallback(GetD3D11DeviceIfAlloc);
@@ -106,11 +216,18 @@ private:
     // if we're already inside a wrapped create, then DON'T do anything special. Just call onwards
     if(CheckRecurse())
     {
+      SQCChainLog("D3D11 Create_Internal recurse passthrough");
       return real(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion,
                   pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel, ppImmediateContext);
     }
 
     RDCDEBUG("Call to Create_Internal Flags %x", Flags);
+    {
+      char msg[256] = {};
+      wsprintfA(msg, "D3D11 Create_Internal begin flags=0x%X swap=%p ppDevice=%p ppCtx=%p", Flags,
+                pSwapChainDesc, ppDevice, ppImmediateContext);
+      SQCChainLog(msg);
+    }
 
     // we should no longer go through here in the replay application
     RDCASSERT(!SanQiCapture::Inst().IsReplayApp());
@@ -132,9 +249,11 @@ private:
     if(pUsedSwapDesc && !SanQiCapture::Inst().GetCaptureOptions().allowFullscreen)
     {
       pUsedSwapDesc->Windowed = TRUE;
+      SQCChainLog("D3D11 Create_Internal forced windowed swapchain");
     }
 
     RDCDEBUG("Calling real createdevice...");
+    SQCChainLog("D3D11 before real CreateDevice");
 
     // Hack for D3DGear which crashes if ppDevice is NULL
     ID3D11Device *dummydev = NULL;
@@ -145,8 +264,19 @@ private:
       dummyUsed = true;
     }
 
-    HRESULT ret = real(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels,
-                       SDKVersion, pUsedSwapDesc, ppSwapChain, ppDevice, pFeatureLevel, NULL);
+    HRESULT ret = E_FAIL;
+    {
+      ScopedSuppressHooking suppress;
+      ret = real(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion,
+                 pUsedSwapDesc, ppSwapChain, ppDevice, pFeatureLevel, NULL);
+    }
+    {
+      char msg[256] = {};
+      wsprintfA(msg, "D3D11 after real CreateDevice hr=0x%08X device=%p swapchain=%p",
+                (unsigned int)ret, ppDevice ? *ppDevice : NULL,
+                ppSwapChain ? *ppSwapChain : NULL);
+      SQCChainLog(msg);
+    }
 
     SAFE_RELEASE(dummydev);
     if(dummyUsed)
@@ -168,6 +298,7 @@ private:
 
       if(!WrappedID3D11Device::IsAlloc(*ppDevice))
       {
+        SQCChainLog("D3D11 before WrappedID3D11Device");
         D3D11InitParams params;
         params.DriverType = DriverType;
         params.Flags = Flags;
@@ -179,14 +310,21 @@ private:
         WrappedID3D11Device *wrap = new WrappedID3D11Device(*ppDevice, params);
 
         RDCDEBUG("created wrapped device.");
+        SQCChainLog("D3D11 after WrappedID3D11Device");
 
         *ppDevice = wrap;
 
+        SQCChainLog("D3D11 before GetImmediateContext");
         wrap->GetImmediateContext(ppImmediateContext);
+        SQCChainLog("D3D11 after GetImmediateContext");
 
         if(ppSwapChain && *ppSwapChain)
+        {
+          SQCChainLog("D3D11 before WrappedIDXGISwapChain4");
           *ppSwapChain = new WrappedIDXGISwapChain4(
               *ppSwapChain, pSwapChainDesc ? pSwapChainDesc->OutputWindow : NULL, wrap);
+          SQCChainLog("D3D11 after WrappedIDXGISwapChain4");
+        }
       }
     }
     else if(SUCCEEDED(ret))
@@ -199,6 +337,7 @@ private:
     }
 
     EndRecurse();
+    SQCChainLog("D3D11 Create_Internal end");
 
     return ret;
   }
@@ -209,6 +348,7 @@ private:
       UINT SDKVersion, __out_opt ID3D11Device **ppDevice,
       __out_opt D3D_FEATURE_LEVEL *pFeatureLevel, __out_opt ID3D11DeviceContext **ppImmediateContext)
   {
+    SQCChainLog("D3D11CreateDevice_hook hit");
     // just forward the call with NULL swapchain parameters
     return D3D11CreateDeviceAndSwapChain_hook(pAdapter, DriverType, Software, Flags, pFeatureLevels,
                                               FeatureLevels, SDKVersion, NULL, NULL, ppDevice,
@@ -222,26 +362,63 @@ private:
       __out_opt IDXGISwapChain **ppSwapChain, __out_opt ID3D11Device **ppDevice,
       __out_opt D3D_FEATURE_LEVEL *pFeatureLevel, __out_opt ID3D11DeviceContext **ppImmediateContext)
   {
-    PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN createFunc = d3d11hooks.CreateDeviceAndSwapChain();
+    static thread_local bool hookRecurse = false;
+    SQCChainLog("D3D11CreateDeviceAndSwapChain_hook hit");
 
-    if(createFunc == NULL)
+    if(hookRecurse)
     {
-      RDCWARN("Call to D3D11CreateDeviceAndSwapChain_hook without onward function pointer");
-      createFunc = (PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN)GetProcAddress(
-          GetModuleHandleA("d3d11.dll"), "D3D11CreateDeviceAndSwapChain");
+      SQCChainLog("D3D11CreateDeviceAndSwapChain recursion raw passthrough");
+      PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN real =
+          (PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN)GetSystemD3D11Proc(
+              "D3D11CreateDeviceAndSwapChain");
+      if(real != NULL && real != &D3D11CreateDeviceAndSwapChain_hook &&
+         !IsOwnModuleProc((FARPROC)real))
+      {
+        ScopedSuppressHooking suppress;
+        return real(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels,
+                    SDKVersion, pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel,
+                    ppImmediateContext);
+      }
+
+      SQCChainLog("D3D11CreateDeviceAndSwapChain recursion no raw target");
+      return E_FAIL;
+    }
+
+    PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN saved = d3d11hooks.CreateDeviceAndSwapChain();
+    PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN createFunc =
+        (PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN)GetSystemD3D11Proc(
+            "D3D11CreateDeviceAndSwapChain");
+    {
+      char msg[256] = {};
+      wsprintfA(msg, "D3D11CreateDeviceAndSwapChain saved=%p system=%p", saved, createFunc);
+      SQCChainLog(msg);
+    }
+
+    if(createFunc == NULL || createFunc == &D3D11CreateDeviceAndSwapChain_hook ||
+       IsOwnModuleProc((FARPROC)createFunc))
+    {
+      RDCWARN("Call to D3D11CreateDeviceAndSwapChain_hook without valid system export");
+      SQCChainLog("D3D11CreateDeviceAndSwapChain system export invalid, trying saved onward");
+      createFunc = saved;
     }
 
     // shouldn't ever get here, we should either have it from procaddress or the hook function, but
     // let's be safe.
-    if(createFunc == NULL)
+    if(createFunc == NULL || createFunc == &D3D11CreateDeviceAndSwapChain_hook ||
+       IsOwnModuleProc((FARPROC)createFunc))
     {
       RDCERR("Something went seriously wrong with the hooks!");
+      SQCChainLog("D3D11CreateDeviceAndSwapChain no valid real target");
       return E_UNEXPECTED;
     }
 
-    return d3d11hooks.Create_Internal(createFunc, pAdapter, DriverType, Software, Flags,
-                                      pFeatureLevels, FeatureLevels, SDKVersion, pSwapChainDesc,
-                                      ppSwapChain, ppDevice, pFeatureLevel, ppImmediateContext);
+    hookRecurse = true;
+    HRESULT ret = d3d11hooks.Create_Internal(createFunc, pAdapter, DriverType, Software, Flags,
+                                             pFeatureLevels, FeatureLevels, SDKVersion,
+                                             pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel,
+                                             ppImmediateContext);
+    hookRecurse = false;
+    return ret;
   }
 };
 

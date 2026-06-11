@@ -54,6 +54,9 @@ static std::map<std::string, uintptr_t> g_CachedProcAddrs;
 
 HMODULE GetCachedSelfModuleHandle()
 {
+  if(g_CachedSelfHandle == NULL)
+    CacheSelfModuleHandle();
+
   return g_CachedSelfHandle;
 }
 
@@ -267,7 +270,8 @@ void GetExecutableFilename(rdcstr &selfName)
 void GetLibraryFilename(rdcstr &selfName)
 {
   wchar_t curFile[512] = {0};
-  GetModuleFileNameW(GetCachedSelfModuleHandle(), curFile, 511);
+  HMODULE selfModule = GetCachedSelfModuleHandle();
+  GetModuleFileNameW(selfModule, curFile, 511);
 
   selfName = StringFormat::Wide2UTF8(curFile);
 }

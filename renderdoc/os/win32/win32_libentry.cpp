@@ -31,65 +31,87 @@
 #include "hooks/hooks.h"
 #include "strings/string_utils.h"
 
-// 诊断宏：写进程时序日志到 C:\sqc_steps.txt
-#define SQC_STEP(msg)                                                                         \
-  do                                                                                          \
-  {                                                                                           \
-    HANDLE _h = CreateFileA("C:\\sqc_steps.txt", FILE_APPEND_DATA,                           \
-                            FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS,           \
-                            FILE_ATTRIBUTE_NORMAL, NULL);                                     \
-    if(_h != INVALID_HANDLE_VALUE)                                                            \
-    {                                                                                         \
-      char _buf[256];                                                                         \
-      DWORD _w;                                                                               \
-      wsprintfA(_buf, "[SQC-STEP] pid=%u " msg "\r\n", GetCurrentProcessId());               \
-      WriteFile(_h, _buf, lstrlenA(_buf), &_w, NULL);                                        \
-      CloseHandle(_h);                                                                        \
-    }                                                                                         \
-  } while(0)
+static void SQCChainLog(const char *msg)
+{
+  char path[MAX_PATH] = {};
+  GetTempPathA(MAX_PATH, path);
+  strcat_s(path, MAX_PATH, "sqc_hook_chain.txt");
 
-static BOOL add_hooks(HMODULE hModule)
+  HANDLE h = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if(h == INVALID_HANDLE_VALUE)
+    return;
+
+  char buf[512] = {};
+  DWORD written = 0;
+  wsprintfA(buf, "[SQC-CHAIN] tick=%u pid=%u %s\r\n", GetTickCount(), GetCurrentProcessId(), msg);
+  WriteFile(h, buf, lstrlenA(buf), &written, NULL);
+  CloseHandle(h);
+}
+
+static void SQCWriteTargetIdent()
+{
+  char path[MAX_PATH] = {};
+  GetTempPathA(MAX_PATH, path);
+  strcat_s(path, MAX_PATH, "sqc_target_ident_");
+
+  char pid[32] = {};
+  wsprintfA(pid, "%u.txt", GetCurrentProcessId());
+  strcat_s(path, MAX_PATH, pid);
+
+  HANDLE h = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                         CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if(h == INVALID_HANDLE_VALUE)
+    return;
+
+  char buf[64] = {};
+  wsprintfA(buf, "%u", SanQiCapture::Inst().GetTargetControlIdent());
+  DWORD written = 0;
+  WriteFile(h, buf, (DWORD)lstrlenA(buf), &written, NULL);
+  CloseHandle(h);
+}
+
+static bool SQCEnvEnabled(const char *name)
+{
+  char value[16] = {};
+  DWORD len = GetEnvironmentVariableA(name, value, sizeof(value));
+  return len > 0 && _stricmp(value, "0") != 0 && _stricmp(value, "false") != 0 &&
+         _stricmp(value, "off") != 0;
+}
+
+static bool SQCIsToolProcess(const rdcstr &processName)
+{
+  return processName.contains("injecttool.exe") || SQCEnvEnabled("SQC_TOOL_ENV");
+}
+
+static BOOL add_hooks()
 {
   wchar_t curFile[512];
-
-  SQC_STEP("add_hooks entered");
-  OutputDebugStringA("[SQC] add_hooks entered\n");
-
   GetModuleFileNameW(NULL, curFile, 512);
 
-  // System processes must never be hooked. Tool processes are handled explicitly
-  // by process name so target applications cannot be misclassified by inherited
-  // environment variables.
+  rdcstr f = get_basename(strlower(StringFormat::Wide2UTF8(curFile)));
+  char msg[256] = {};
+  wsprintfA(msg, "add_hooks process=%s", f.c_str());
+  SQCChainLog(msg);
+
+  if(SQCIsToolProcess(f))
   {
-    wchar_t *basename = wcsrchr(curFile, L'\\');
-    if(!basename) basename = wcsrchr(curFile, L'/');
-    if(!basename) basename = curFile;
-    else basename++;
+    SQCChainLog("add_hooks skip tool process");
+    SanQiCapture::Inst().SetReplayApp(true);
+    SanQiCapture::Inst().Initialise();
+    LibraryHooks::ReplayInitialise();
+    return true;
+  }
 
-    SQC_STEP("add_hooks basename wide check");
-
-    if(_wcsicmp(basename, L"dllhost.exe") == 0 ||
-       _wcsicmp(basename, L"explorer.exe") == 0)
-    {
+  // bail immediately if we're in a system process. We don't want to hook, log, anything -
+  // this instance is being used for a shell extension.
+  if(f == "dllhost.exe" || f == "explorer.exe")
+  {
 #if ENABLED(RDOC_RELEASE)
-      OutputDebugStringA(
-          "Detecting shell process! Disabling hooking in dllhost.exe or explorer.exe\n");
+    OutputDebugStringA(
+        "Detecting shell process! Disabling hooking in dllhost.exe or explorer.exe\n");
 #endif
-      SQC_STEP("excluded by basename check (system process)");
-      return TRUE;
-    }
-
-    if(_wcsicmp(basename, L"qsanqiInjectTool.exe") == 0 ||
-       _wcsicmp(basename, L"sanqicapture.exe") == 0 ||
-       _wcsicmp(basename, L"qrenderdoc.exe") == 0 ||
-       _wcsicmp(basename, L"renderdoccmd.exe") == 0)
-    {
-      SanQiCapture::Inst().SetReplayApp(true);
-      SanQiCapture::Inst().Initialise();
-      LibraryHooks::ReplayInitialise();
-      SQC_STEP("tool process detected by basename, hooks skipped");
-      return true;
-    }
+    return TRUE;
   }
 
   // search for an exported symbol with this name, typically system_load__replay__marker
@@ -103,27 +125,18 @@ static BOOL add_hooks(HMODULE hModule)
 
     LibraryHooks::ReplayInitialise();
 
-    SQC_STEP("replay marker detected, hooks skipped");
     return true;
   }
 
-  OutputDebugStringA("[SQC] Calling Initialise\n");
-
   SanQiCapture::Inst().Initialise();
-
-  SQC_STEP("after Initialise");
+  SQCChainLog("after SanQiCapture::Initialise");
+  SQCWriteTargetIdent();
 
   RDCLOG("Loading into %ls", curFile);
 
+  SQCChainLog("before LibraryHooks::RegisterHooks");
   LibraryHooks::RegisterHooks();
-
-  SQC_STEP("after RegisterHooks");
-
-  OutputDebugStringA("[SQC] RegisterHooks done\n");
-
-  SQC_STEP("add_hooks done");
-
-  OutputDebugStringA("[SQC] add_hooks returning TRUE\n");
+  SQCChainLog("after LibraryHooks::RegisterHooks");
 
   return TRUE;
 }
@@ -132,25 +145,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
   if(ul_reason_for_call == DLL_PROCESS_ATTACH)
   {
-    OutputDebugStringA("[SQC] DllMain DLL_PROCESS_ATTACH\n");
-
-    // Cache HMODULE and export addresses immediately so remote configuration
-    // calls can resolve functions reliably after injection.
+    SQCChainLog("DllMain DLL_PROCESS_ATTACH");
     CacheSelfModuleHandle();
-
-    SQC_STEP("after CacheSelfModuleHandle");
-
-    // add_hooks() handles process-type detection internally:
-    //   - system processes (dllhost/explorer) → early return, no hooks
-    //   - replay/tool processes: SetReplayApp + Initialise, no hooks
-    //   - target game processes: full hooks
-    BOOL ret = add_hooks(hModule);
-
-    OutputDebugStringA("[SQC] DllMain returning\n");
+    SQCChainLog("after CacheSelfModuleHandle");
+    BOOL ret = add_hooks();
     SetLastError(0);
-
-    SQC_STEP("DllMain done");
-
+    SQCChainLog("DllMain returning");
     return ret;
   }
 
