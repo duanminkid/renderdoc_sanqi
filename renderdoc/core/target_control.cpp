@@ -116,17 +116,11 @@ rdcstr DoStringise(const PacketType &el)
 #define WRITE_DATA_SCOPE() WriteSerialiser &ser = writer;
 #define READ_DATA_SCOPE() ReadSerialiser &ser = reader;
 
-void SanQiCapture::TargetControlClientThread(uint32_t version, Network::Socket *client)
+static bool SQCWriteTargetControlHandshake(Network::Socket *client)
 {
-  Threading::SetCurrentThreadName("TargetControlClientThread");
-
-  Threading::KeepModuleAlive();
-
   WriteSerialiser writer(new StreamWriter(client, Ownership::Nothing), Ownership::Stream);
-  ReadSerialiser reader(new StreamReader(client, Ownership::Nothing), Ownership::Stream);
 
   writer.SetStreamingMode(true);
-  reader.SetStreamingMode(true);
 
   rdcstr target = SanQiCapture::Inst().GetCurrentTarget();
   uint32_t mypid = Process::GetCurrentPID();
@@ -141,16 +135,27 @@ void SanQiCapture::TargetControlClientThread(uint32_t version, Network::Socket *
 
   if(writer.IsErrored())
   {
-    SAFE_DELETE(client);
-
-    {
-      SCOPED_LOCK(SanQiCapture::Inst().m_SingleClientLock);
-      SanQiCapture::Inst().m_SingleClientName = "";
-    }
-
-    Threading::ReleaseModuleExitThread();
-    return;
+    RDCWARN("SQC target control failed writing handshake to client");
+    return false;
   }
+
+  RDCLOG("SQC target control wrote handshake to client");
+  return true;
+}
+
+void SanQiCapture::TargetControlClientThread(uint32_t version, Network::Socket *client)
+{
+  Threading::SetCurrentThreadName("TargetControlClientThread");
+
+  Threading::KeepModuleAlive();
+
+  RDCLOG("SQC target control client thread starting, client protocol %u", version);
+
+  WriteSerialiser writer(new StreamWriter(client, Ownership::Nothing), Ownership::Stream);
+  ReadSerialiser reader(new StreamReader(client, Ownership::Nothing), Ownership::Stream);
+
+  writer.SetStreamingMode(true);
+  reader.SetStreamingMode(true);
 
   float captureProgress = -1.0f;
   SanQiCapture::Inst().SetProgressCallback<CaptureProgress>(
@@ -427,6 +432,7 @@ void SanQiCapture::TargetControlClientThread(uint32_t version, Network::Socket *
     SanQiCapture::Inst().m_SingleClientName = "";
   }
 
+  RDCLOG("SQC target control client thread ending");
   Threading::ReleaseModuleExitThread();
 }
 
@@ -462,6 +468,8 @@ void SanQiCapture::TargetControlServerThread(Network::Socket *sock)
       continue;
     }
 
+    RDCLOG("SQC target control accepted client");
+
     rdcstr existingClient;
     rdcstr newClient;
     uint32_t version;
@@ -477,6 +485,7 @@ void SanQiCapture::TargetControlServerThread(Network::Socket *sock)
 
       if(type != ePacket_Handshake)
       {
+        RDCWARN("SQC target control rejected non-handshake packet %u", (uint32_t)type);
         SAFE_DELETE(client);
         continue;
       }
@@ -495,6 +504,9 @@ void SanQiCapture::TargetControlServerThread(Network::Socket *sock)
         SAFE_DELETE(client);
         continue;
       }
+
+      RDCLOG("SQC target control handshake client='%s' version=%u kick=%u",
+             newClient.c_str(), version, kick ? 1 : 0);
     }
 
     // see if we have a client
@@ -505,6 +517,7 @@ void SanQiCapture::TargetControlServerThread(Network::Socket *sock)
 
     if(!existingClient.empty() && kick)
     {
+      RDCLOG("SQC target control kicking existing client '%s'", existingClient.c_str());
       // forcibly close communication thread which will kill the connection
       SanQiCapture::Inst().m_ControlClientThreadShutdown = true;
       Threading::JoinThread(clientThread);
@@ -523,12 +536,26 @@ void SanQiCapture::TargetControlServerThread(Network::Socket *sock)
     // if we've claimed client status, spawn a thread to communicate
     if(existingClient.empty() || kick)
     {
+      if(!SQCWriteTargetControlHandshake(client))
+      {
+        SAFE_DELETE(client);
+
+        {
+          SCOPED_LOCK(SanQiCapture::Inst().m_SingleClientLock);
+          SanQiCapture::Inst().m_SingleClientName = "";
+        }
+
+        continue;
+      }
+
       clientThread =
           Threading::CreateThread([version, client] { TargetControlClientThread(version, client); });
       continue;
     }
     else
     {
+      RDCLOG("SQC target control busy for client '%s', existing '%s'", newClient.c_str(),
+             existingClient.c_str());
       // if we've been asked to kick the existing connection off
       // reject this connection and tell them who is busy
       WriteSerialiser ser(new StreamWriter(client, Ownership::Nothing), Ownership::Stream);

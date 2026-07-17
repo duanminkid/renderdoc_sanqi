@@ -31,6 +31,7 @@
 #include <functional>
 #include <map>
 #include <set>
+#include "3rdparty/minhook/include/MinHook.h"
 #include "common/common.h"
 #include "common/threading.h"
 #include "hooks/hooks.h"
@@ -72,7 +73,11 @@ static void SQCChainLog(const char *msg)
   CloseHandle(h);
 }
 
-static bool ShouldSkipFunctionHook(const char *modName, const char *dllName, const char *function)
+static bool SQCEnvEnabled(const char *name);
+static bool IsLoaderHookLibrary(const char *dllName);
+
+static bool ShouldSkipFunctionHook(const char *modName, const char *dllName, const char *function,
+                                   HMODULE module)
 {
   if(modName == NULL || dllName == NULL || function == NULL)
     return false;
@@ -85,6 +90,19 @@ static bool ShouldSkipFunctionHook(const char *modName, const char *dllName, con
               dllName, function);
     SQCChainLog(msg);
     return true;
+  }
+
+  if(SQCEnvEnabled("SQC_D3D11_LIGHT_HOOKS") && IsLoaderHookLibrary(dllName))
+  {
+    // Keep one GetProcAddress hook in the executable as a fallback for dynamically resolved
+    // D3D11/DXGI exports. Hooking LoadLibrary or every DLL's GetProcAddress sends unrelated loader
+    // traffic through our hook; that matches the observed pre-D3D11 ntdll startup faults. Limiting
+    // the fallback to the executable preserves the capture entry without modifying the rest of the
+    // loader path.
+    if(_stricmp(function, "GetProcAddress") != 0)
+      return true;
+
+    return module != GetModuleHandleW(NULL);
   }
 
   return false;
@@ -123,17 +141,59 @@ static bool IsDXGIFactoryFunction(const char *func)
                   !_stricmp(func, "CreateDXGIFactory2"));
 }
 
+static bool SQCEnvEnabled(const char *name)
+{
+  char value[16] = {};
+  DWORD len = GetEnvironmentVariableA(name, value, sizeof(value));
+  return len > 0 && _stricmp(value, "0") != 0 && _stricmp(value, "false") != 0 &&
+         _stricmp(value, "off") != 0;
+}
+
+static bool SQCAllowLightHookLibrary(const char *libraryName)
+{
+  if(!SQCEnvEnabled("SQC_D3D11_LIGHT_HOOKS"))
+    return true;
+
+  if(libraryName == NULL)
+    return false;
+
+  return !_stricmp(libraryName, "d3d11.dll") || !_stricmp(libraryName, "dxgi.dll");
+}
+
+static bool SQCIsLightHookSystemModule(const wchar_t *lowerModPath)
+{
+  if(!SQCEnvEnabled("SQC_D3D11_LIGHT_HOOKS"))
+    return false;
+
+  if(lowerModPath == NULL || lowerModPath[0] == 0)
+    return false;
+
+  return wcsstr(lowerModPath, L"\\windows\\system32\\") != NULL ||
+         wcsstr(lowerModPath, L"\\windows\\syswow64\\") != NULL ||
+         wcsstr(lowerModPath, L"\\windows\\winsxs\\") != NULL;
+}
+
+static volatile LONG SQC_CaptureEntryHookCount = 0;
+
+static bool SQCIsCaptureEntryHook(const char *dllName, const char *function)
+{
+  return !_stricmp(dllName, "d3d11.dll") || !_stricmp(dllName, "dxgi.dll") ||
+         !_stricmp(function, "GetProcAddress");
+}
+
 bool ApplyHook(FunctionHook &hook, void **IATentry, bool &already, const char *modName,
-               const char *dllName)
+               const char *dllName, HMODULE module)
 {
   DWORD oldProtection = PAGE_EXECUTE;
 
-  if(ShouldSkipFunctionHook(modName, dllName, hook.function.c_str()))
+  if(ShouldSkipFunctionHook(modName, dllName, hook.function.c_str(), module))
     return true;
 
   if(*IATentry == hook.hook)
   {
     already = true;
+    if(SQCIsCaptureEntryHook(dllName, hook.function.c_str()))
+      InterlockedIncrement(&SQC_CaptureEntryHookCount);
     return true;
   }
 
@@ -174,6 +234,9 @@ bool ApplyHook(FunctionHook &hook, void **IATentry, bool &already, const char *m
     RDCERR("Failed to restore IAT entry protection 0x%p", IATentry);
     return false;
   }
+
+  if(SQCIsCaptureEntryHook(dllName, hook.function.c_str()))
+    InterlockedIncrement(&SQC_CaptureEntryHookCount);
 
   return true;
 }
@@ -413,6 +476,17 @@ struct CachedHookData
                               wcsstr(lowerModPath, L"\\windows\\syswow64\\") != NULL;
     }
 
+    if(SQCIsLightHookSystemModule(lowerModPath))
+    {
+      if(!_stricmp(modName, "d3d11.dll") || !_stricmp(modName, "dxgi.dll"))
+      {
+        char msg[256] = {};
+        wsprintfA(msg, "ApplyHooks light skip system hook library module=%s", modName);
+        SQCChainLog(msg);
+      }
+      return;
+    }
+
     // windows 11 and newer versions have weird hotpatch DLLs that don't act like real DLLs. The
     // LoadLibraryW below will fail for these DLLs even when using the module path provided.
     // Only check the path for DLLs that might be a windows-hotpatch but if it matches we'll skip
@@ -558,7 +632,7 @@ struct CachedHookData
                   if(found != hookset->FunctionHooks.end() &&
                      !strcmp(found->function.c_str(), importName) && ownmodule != module)
                   {
-                    if(ShouldSkipFunctionHook(modName, dllName, found->function.c_str()))
+                    if(ShouldSkipFunctionHook(modName, dllName, found->function.c_str(), module))
                     {
                       origFirst++;
                       first++;
@@ -569,7 +643,7 @@ struct CachedHookData
                     bool applied;
                     {
                       SCOPED_LOCK(lock);
-                      applied = ApplyHook(*found, IATentry, already, modName, dllName);
+                      applied = ApplyHook(*found, IATentry, already, modName, dllName, module);
                     }
 
                     // if we failed, or if it's already set and we're not doing a missedOrdinals
@@ -628,7 +702,7 @@ struct CachedHookData
           if(found != hookset->FunctionHooks.end() &&
              !strcmp(found->function.c_str(), importName) && ownmodule != module)
           {
-            if(ShouldSkipFunctionHook(modName, dllName, found->function.c_str()))
+            if(ShouldSkipFunctionHook(modName, dllName, found->function.c_str(), module))
             {
               origFirst++;
               first++;
@@ -639,7 +713,7 @@ struct CachedHookData
             bool applied;
             {
                 SCOPED_LOCK(lock);
-                applied = ApplyHook(*found, IATentry, already, modName, dllName);
+                applied = ApplyHook(*found, IATentry, already, modName, dllName, module);
               }
 
             // if we failed, or if it's already set and we're not doing a missedOrdinals
@@ -679,6 +753,176 @@ struct CachedHookData
 };
 
 static CachedHookData *s_HookData = NULL;
+static bool s_SQCYuanShenInlineHooksActive = false;
+static bool s_SQCMinHookInitialised = false;
+static rdcarray<void **> s_SQCInlineOriginalPointers;
+
+static bool SQCUseYuanShenInlineHooks()
+{
+  if(!SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD") ||
+     !SQCEnvEnabled("SQC_YUANSHEN_INLINE_HOOKS"))
+    return false;
+
+  char processPath[MAX_PATH] = {};
+  GetModuleFileNameA(NULL, processPath, MAX_PATH);
+  return strlower(get_basename(processPath)) == "yuanshen.exe";
+}
+
+static HMODULE SQCLoadSystemLibrary(const char *libraryName)
+{
+  char path[MAX_PATH] = {};
+  UINT len = GetSystemDirectoryA(path, MAX_PATH);
+  if(len == 0 || len >= MAX_PATH || strcat_s(path, MAX_PATH, "\\") != 0 ||
+     strcat_s(path, MAX_PATH, libraryName) != 0)
+    return NULL;
+
+  return LoadLibraryA(path);
+}
+
+static bool SQCIsRequiredInlineHook(const rdcstr &libraryName, const rdcstr &functionName)
+{
+  if(libraryName == "d3d11.dll")
+    return functionName == "D3D11CreateDevice" ||
+           functionName == "D3D11CreateDeviceAndSwapChain";
+
+  if(libraryName == "dxgi.dll")
+    return functionName == "CreateDXGIFactory" || functionName == "CreateDXGIFactory1" ||
+           functionName == "CreateDXGIFactory2";
+
+  return false;
+}
+
+static void SQCResetInlineOriginalPointers()
+{
+  for(void **original : s_SQCInlineOriginalPointers)
+  {
+    if(original != NULL)
+      *original = NULL;
+  }
+
+  s_SQCInlineOriginalPointers.clear();
+}
+
+static bool SQCRemoveYuanShenInlineHooks()
+{
+  if(s_SQCMinHookInitialised)
+  {
+    MH_STATUS disableStatus = MH_DisableHook(MH_ALL_HOOKS);
+    if(disableStatus != MH_OK && disableStatus != MH_ERROR_DISABLED)
+      RDCWARN("Failed to disable YuanShen inline hooks: %d", (int)disableStatus);
+
+    MH_STATUS uninitialiseStatus = MH_Uninitialize();
+    if(uninitialiseStatus != MH_OK)
+    {
+      RDCWARN("Failed to uninitialise YuanShen inline hooks: %d", (int)uninitialiseStatus);
+      SQCChainLog("YuanShen inline cleanup incomplete; refusing IAT fallback");
+      return false;
+    }
+  }
+
+  s_SQCMinHookInitialised = false;
+  s_SQCYuanShenInlineHooksActive = false;
+  SQCResetInlineOriginalPointers();
+  InterlockedExchange(&SQC_CaptureEntryHookCount, 0);
+  return true;
+}
+
+static bool SQCApplyYuanShenInlineHooks()
+{
+  SQCChainLog("YuanShen inline hook transaction begin");
+
+  MH_STATUS status = MH_Initialize();
+  if(status != MH_OK)
+  {
+    char msg[128] = {};
+    wsprintfA(msg, "YuanShen inline MH_Initialize failed status=%d", (int)status);
+    SQCChainLog(msg);
+    return false;
+  }
+
+  s_SQCMinHookInitialised = true;
+  size_t createdHooks = 0;
+
+  for(const char *libraryName : {"d3d11.dll", "dxgi.dll"})
+  {
+    auto hooksetIt = s_HookData->DllHooks.find(libraryName);
+    if(hooksetIt == s_HookData->DllHooks.end())
+    {
+      SQCChainLog("YuanShen inline required hook library was not registered");
+      SQCRemoveYuanShenInlineHooks();
+      return false;
+    }
+
+    HMODULE module = SQCLoadSystemLibrary(libraryName);
+    if(module == NULL)
+    {
+      SQCChainLog("YuanShen inline failed to load a system graphics library");
+      SQCRemoveYuanShenInlineHooks();
+      return false;
+    }
+
+    DllHookset &hookset = hooksetIt->second;
+    hookset.module = module;
+    hookset.hooksfetched = true;
+
+    for(FunctionHook &hook : hookset.FunctionHooks)
+    {
+      if(!SQCIsRequiredInlineHook(hooksetIt->first, hook.function))
+        continue;
+
+      if(hook.orig == NULL || hook.hook == NULL)
+      {
+        SQCChainLog("YuanShen inline hook registration is incomplete");
+        SQCRemoveYuanShenInlineHooks();
+        return false;
+      }
+
+      FARPROC target = GetProcAddress(module, hook.function.c_str());
+      if(target == NULL)
+      {
+        SQCChainLog("YuanShen inline required export was not found");
+        SQCRemoveYuanShenInlineHooks();
+        return false;
+      }
+
+      status = MH_CreateHook((LPVOID)target, hook.hook, (LPVOID *)hook.orig);
+      if(status != MH_OK)
+      {
+        char msg[256] = {};
+        wsprintfA(msg, "YuanShen inline MH_CreateHook failed function=%s status=%d",
+                  hook.function.c_str(), (int)status);
+        SQCChainLog(msg);
+        SQCRemoveYuanShenInlineHooks();
+        return false;
+      }
+
+      s_SQCInlineOriginalPointers.push_back(hook.orig);
+      createdHooks++;
+    }
+  }
+
+  if(createdHooks != 5)
+  {
+    SQCChainLog("YuanShen inline hook transaction did not create all five hooks");
+    SQCRemoveYuanShenInlineHooks();
+    return false;
+  }
+
+  status = MH_EnableHook(MH_ALL_HOOKS);
+  if(status != MH_OK)
+  {
+    char msg[128] = {};
+    wsprintfA(msg, "YuanShen inline MH_EnableHook failed status=%d", (int)status);
+    SQCChainLog(msg);
+    SQCRemoveYuanShenInlineHooks();
+    return false;
+  }
+
+  s_SQCYuanShenInlineHooksActive = true;
+  InterlockedExchange(&SQC_CaptureEntryHookCount, (LONG)createdHooks);
+  SQCChainLog("YuanShen inline hook transaction committed hooks=5");
+  return true;
+}
 
 #ifdef UNICODE
 #undef MODULEENTRY32
@@ -1021,7 +1265,8 @@ FARPROC WINAPI Hooked_GetProcAddress(HMODULE mod, LPCSTR func)
           realfunc = GetProcAddress(mod, func);
         }
 
-        if(!_stricmp(it->first.c_str(), "dxgi.dll") && IsDXGIFactoryFunction(func))
+        if(!_stricmp(it->first.c_str(), "dxgi.dll") && IsDXGIFactoryFunction(func) &&
+           SQCEnvEnabled("SQC_DXGI_GETPROC_BYPASS"))
         {
           static bool loggedFactory = false;
           static bool loggedFactory1 = false;
@@ -1072,6 +1317,8 @@ static void InitHookData()
     s_HookData = new CachedHookData;
 
     RDCASSERT(s_HookData->DllHooks.empty());
+
+    const bool lightHooks = SQCEnvEnabled("SQC_D3D11_LIGHT_HOOKS");
     s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
         FunctionHook("LoadLibraryA", NULL, &Hooked_LoadLibraryA));
     s_HookData->DllHooks["kernel32.dll"].FunctionHooks.push_back(
@@ -1100,6 +1347,9 @@ static void InitHookData()
           FunctionHook("GetProcAddress", NULL, &Hooked_GetProcAddress));
     }
 
+    if(lightHooks)
+      SQCChainLog("InitHookData light mode loader notifications enabled; API hooks limited");
+
     GetModuleHandleEx(
         GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
         (LPCTSTR)&s_HookData, &s_HookData->ownmodule);
@@ -1118,6 +1368,16 @@ void LibraryHooks::RegisterFunctionHook(const char *libraryName, const FunctionH
       return;
     }
   }
+
+  if(!SQCAllowLightHookLibrary(libraryName))
+  {
+    char msg[256] = {};
+    wsprintfA(msg, "RegisterFunctionHook light skip library=%s function=%s", libraryName,
+              hook.function.c_str());
+    SQCChainLog(msg);
+    return;
+  }
+
   s_HookData->DllHooks[strlower(rdcstr(libraryName))].FunctionHooks.push_back(hook);
 
   if(hook.function == "D3D11CreateDevice" ||
@@ -1134,6 +1394,14 @@ void LibraryHooks::RegisterFunctionHook(const char *libraryName, const FunctionH
 
 void LibraryHooks::RegisterLibraryHook(const char *libraryName, FunctionLoadCallback loadedCallback)
 {
+  if(!SQCAllowLightHookLibrary(libraryName))
+  {
+    char msg[256] = {};
+    wsprintfA(msg, "RegisterLibraryHook light skip library=%s", libraryName);
+    SQCChainLog(msg);
+    return;
+  }
+
   s_HookData->DllHooks[strlower(rdcstr(libraryName))].Callbacks.push_back(loadedCallback);
 }
 
@@ -1150,7 +1418,13 @@ void LibraryHooks::IgnoreLibrary(const char *libraryName)
 void LibraryHooks::BeginHookRegistration()
 {
   SQCChainLog("BeginHookRegistration");
+  InterlockedExchange(&SQC_CaptureEntryHookCount, 0);
   InitHookData();
+}
+
+bool LibraryHooks::HooksApplied()
+{
+  return InterlockedCompareExchange(&SQC_CaptureEntryHookCount, 0, 0) > 0;
 }
 
 // hook all functions for currently loaded modules.
@@ -1160,6 +1434,24 @@ void LibraryHooks::EndHookRegistration()
   SQCChainLog("EndHookRegistration begin");
   for(auto it = s_HookData->DllHooks.begin(); it != s_HookData->DllHooks.end(); ++it)
     std::sort(it->second.FunctionHooks.begin(), it->second.FunctionHooks.end());
+
+  if(SQCUseYuanShenInlineHooks())
+  {
+    if(SQCApplyYuanShenInlineHooks())
+    {
+      // Inline hooks cover dynamically resolved graphics exports directly. Do not modify the main
+      // executable's loader IAT in this mode; that mutation is what correlated with the startup
+      // exception loop in the captured YuanShen diagnostics.
+      SQCChainLog("EndHookRegistration YuanShen inline-only path committed");
+      return;
+    }
+
+    // The old light-mode fallback patches GetProcAddress in the main executable. Runtime evidence
+    // ties that mutation to the repeated startup exception loop, so a failed inline transaction
+    // must be reported as HooksFailed instead of silently restoring the known-slow path.
+    SQCChainLog("EndHookRegistration YuanShen inline path failed; IAT fallback blocked");
+    return;
+  }
 
 #if ENABLED(VERBOSE_DEBUG_HOOK)
   RDCDEBUG("Applying hooks");
@@ -1197,6 +1489,9 @@ void LibraryHooks::ReplayInitialise()
 void LibraryHooks::RemoveHooks()
 {
   LibraryHooks::RemoveHookCallbacks();
+
+  if(s_SQCYuanShenInlineHooksActive || s_SQCMinHookInitialised)
+    SQCRemoveYuanShenInlineHooks();
 
   for(auto it = s_InstalledHooks.begin(); it != s_InstalledHooks.end(); ++it)
   {

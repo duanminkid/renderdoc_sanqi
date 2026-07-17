@@ -183,21 +183,25 @@ void hideOption(QCommandLineOption &opt)
 
 int main(int argc, char *argv[])
 {
-  // 诊断宏：同时写C:\sqc_main.txt和OutputDebugString，确保诊断能到达
+  // 诊断宏：同时写临时目录和 OutputDebugString，确保诊断能到达。
   DWORD _sqcPid = GetCurrentProcessId();
   #define SQC_MAIN_DIAG(msg)                                                                    \
     do                                                                                          \
     {                                                                                           \
       char _dbuf[1024];                                                                         \
-      wsprintfA(_dbuf, "[SQC-MAIN] pid=%u %s\r\n", _sqcPid, msg);                           \
+      wsprintfA(_dbuf, "[SQC-MAIN] tick=%u pid=%u %s\r\n", GetTickCount(), _sqcPid, msg);       \
       OutputDebugStringA(_dbuf);                                                                \
-      HANDLE _h = CreateFileA("C:\\sqc_main.txt", FILE_APPEND_DATA,                            \
+      char _path[MAX_PATH] = {};                                                               \
+      GetTempPathA(MAX_PATH, _path);                                                           \
+      strcat_s(_path, MAX_PATH, "sqc_main.txt");                                               \
+      HANDLE _h = CreateFileA(_path, FILE_APPEND_DATA,                                          \
                               FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS,           \
                               FILE_ATTRIBUTE_NORMAL, NULL);                                     \
       if(_h != INVALID_HANDLE_VALUE)                                                            \
       {                                                                                         \
         DWORD _w;                                                                               \
         WriteFile(_h, _dbuf, lstrlenA(_dbuf), &_w, NULL);                                      \
+        FlushFileBuffers(_h);                                                                   \
         CloseHandle(_h);                                                                        \
       }                                                                                         \
     } while(0)

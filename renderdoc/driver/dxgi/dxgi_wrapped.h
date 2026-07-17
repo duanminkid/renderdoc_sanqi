@@ -628,6 +628,7 @@ public:
   int GetNumBackbuffers() { return MAX_NUM_BACKBUFFERS; }
   IUnknown **GetBackbuffers() { return m_pBackBuffers; }
   int GetLastPresentedBuffer() { return RDCMAX(m_LastPresentedBuffer, 0); }
+  UINT SidecarPresent(UINT SyncInterval, UINT Flags);
   IMPLEMENT_IDXGIOBJECT_WITH_REFCOUNTDXGIOBJECT_CUSTOMQUERY;
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppvObject);
 

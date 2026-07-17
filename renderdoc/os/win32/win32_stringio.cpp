@@ -39,7 +39,7 @@
 #include "os/os_specific.h"
 #include "strings/string_utils.h"
 
-// Resource cache: preloaded at DLL attach before PEB unlink.
+// Resource cache: preloaded at DLL attach before PEB unlink for target processes.
 // FindResource fails after PEB unlink even with a valid HMODULE because
 // Windows internally uses the loader data tables to locate .rsrc sections.
 // Solution: read all embedded resources into memory before stealth is applied.
@@ -49,6 +49,7 @@ static int dllLocator = 0;
 static std::map<int, rdcstr> g_ResourceCache;
 static HMODULE g_CachedSelfHandle = NULL;
 static wchar_t g_CachedSelfPath[MAX_PATH] = {0};
+static bool g_CachedResources = false;
 // Cache of INTERNAL_* function pointers resolved before PE header wipe
 static std::map<std::string, uintptr_t> g_CachedProcAddrs;
 
@@ -74,7 +75,7 @@ uintptr_t GetCachedProcAddress(const char *name)
   return 0;
 }
 
-void CacheSelfModuleHandle()
+void CacheSelfModuleHandle(bool cacheResources)
 {
   HMODULE mod = NULL;
   GetModuleHandleExA(
@@ -94,6 +95,7 @@ void CacheSelfModuleHandle()
       "INTERNAL_SetDebugLogFile",
       "INTERNAL_SetCaptureOptions",
       "INTERNAL_GetTargetControlIdent",
+      "INTERNAL_StartYuanShenDirectHooks",
       "INTERNAL_EnvModName",
       "INTERNAL_EnvModValue",
       "INTERNAL_EnvSep",
@@ -106,6 +108,9 @@ void CacheSelfModuleHandle()
     if(addr)
       g_CachedProcAddrs[exp] = (uintptr_t)addr;
   }
+
+  if(!cacheResources || g_CachedResources)
+    return;
 
   // All RESOURCE_* IDs from resource.h
   static const int kAllResourceIds[] = {
@@ -130,6 +135,8 @@ void CacheSelfModuleHandle()
     if(ptr && sz > 0)
       g_ResourceCache[id] = rdcstr(ptr, sz);
   }
+
+  g_CachedResources = true;
 }
 
 rdcstr GetDynamicEmbeddedResource(int resource)

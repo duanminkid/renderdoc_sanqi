@@ -33,6 +33,7 @@
 #include "hooks/hooks.h"
 #include "jpeg-compressor/jpge.h"
 #include "maths/formatpacking.h"
+#include "os/os_specific.h"
 #include "replay/replay_driver.h"
 #include "serialise/rdcfile.h"
 #include "serialise/serialiser.h"
@@ -48,6 +49,13 @@
 #include "replay/renderdoc_serialise.inl"
 
 extern "C" const rdcstr VulkanLayerJSONBasename = STRINGIZE(RDOC_BASE_NAME);
+
+static bool SQCEnvEnabledCore(const char *name)
+{
+  rdcstr value = Process::GetEnvVariable(name);
+  return !value.empty() && value != "0" && value != "false" && value != "False" &&
+         value != "FALSE" && value != "off" && value != "Off" && value != "OFF";
+}
 
 RDOC_DEBUG_CONFIG(bool, Capture_Debug_SnapshotDiagnosticLog, false,
                   "Snapshot the diagnostic log at capture time and embed in the capture.");
@@ -423,6 +431,10 @@ SanQiCapture::SanQiCapture()
 
 void SanQiCapture::Initialise()
 {
+  const bool sqcTargetControlOnly =
+      SQCEnvEnabledCore("SQC_TARGET_CONTROL_ONLY") &&
+      !SQCEnvEnabledCore("SQC_DISABLE_YUANSHEN_TARGET_CONTROL_ONLY");
+
   Callstack::Init();
 
   Network::Init();
@@ -532,7 +544,10 @@ void SanQiCapture::Initialise()
 
   m_ExHandler = NULL;
 
-  RecreateCrashHandler();
+  if(sqcTargetControlOnly)
+    RDCLOG("SQC target-control-only: skipping crash handler initialisation");
+  else
+    RecreateCrashHandler();
 
   // begin printing to stdout/stderr after this point, earlier logging is debugging
   // cruft that we don't want cluttering output.
@@ -541,7 +556,10 @@ void SanQiCapture::Initialise()
   if(IsReplayApp())
     RDCLOGOUTPUT();
 
-  ProcessConfig();
+  if(sqcTargetControlOnly)
+    RDCLOG("SQC target-control-only: skipping config processing");
+  else
+    ProcessConfig();
 }
 
 SanQiCapture::~SanQiCapture()

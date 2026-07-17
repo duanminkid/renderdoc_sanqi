@@ -230,27 +230,10 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   m_MessageTick.setInterval(175);
   m_MessageTick.start();
 
-  m_RemoteProbeSemaphore.release();
-  m_RemoteProbe = new LambdaThread([this]() {
-    while(m_RemoteProbeSemaphore.available())
-    {
-      // check configured remote hosts without enumerating protocol devices in the background.
-      remoteProbe();
-
-      // allow any early-init replay host switches now that the first status check has completed.
-      m_RemoteInitialProbeReady.release();
-
-      // do several small sleeps so we can respond quicker when we need to shut down
-      for(int i = 0; i < 50; i++)
-      {
-        QThread::msleep(150);
-        if(!m_RemoteProbeSemaphore.available())
-          return;
-      }
-    }
-  });
-  m_RemoteProbe->setName(lit("Remote Probe"));
-  m_RemoteProbe->start();
+  // Avoid background remote probing on startup. On Windows this can spin up adb.exe and slow down
+  // unrelated local PC game captures. Remote/Android devices are refreshed on demand when the
+  // context menu is opened.
+  m_RemoteInitialProbeReady.release();
 
   SetTitle();
 
@@ -513,9 +496,12 @@ MainWindow::~MainWindow()
   setUpdatesEnabled(false);
   qDeleteAll(findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly));
 
-  m_RemoteProbeSemaphore.acquire();
-  m_RemoteProbe->wait();
-  m_RemoteProbe->deleteLater();
+  if(m_RemoteProbe)
+  {
+    m_RemoteProbeSemaphore.acquire();
+    m_RemoteProbe->wait();
+    m_RemoteProbe->deleteLater();
+  }
   delete ui;
 }
 
@@ -656,7 +642,9 @@ void MainWindow::OnCaptureTrigger(const QString &exe, const QString &workingDir,
   if(!PromptCloseCapture())
     return;
 
-  LambdaThread *th = new LambdaThread([this, exe, workingDir, cmdLine, env, opts, callback]() {
+  rdcarray<EnvironmentModification> launchEnv = env;
+
+  LambdaThread *th = new LambdaThread([this, exe, workingDir, cmdLine, launchEnv, opts, callback]() {
     if(isUnshareableDeviceInUse())
     {
       RDDialog::warning(this, tr("SanQi Capture is already capturing an app on this device"),
@@ -687,7 +675,7 @@ void MainWindow::OnCaptureTrigger(const QString &exe, const QString &workingDir,
     }
 
     ExecuteResult ret =
-        m_Ctx.Replay().ExecuteAndInject(exe, workingDir, cmdLine, env, capturefile, opts);
+        m_Ctx.Replay().ExecuteAndInject(exe, workingDir, cmdLine, launchEnv, capturefile, opts);
 
     // diagnostic: log after ExecuteAndInject
     {

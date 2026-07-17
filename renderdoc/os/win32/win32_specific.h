@@ -42,7 +42,7 @@
 
 #define GetEmbeddedResource(filename) GetDynamicEmbeddedResource(EmbeddedResource(filename))
 rdcstr GetDynamicEmbeddedResource(int resource);
-void CacheSelfModuleHandle();
+void CacheSelfModuleHandle(bool cacheResources = true);
 HMODULE GetCachedSelfModuleHandle();
 const wchar_t *GetCachedSelfModulePath();
 uintptr_t GetCachedProcAddress(const char *name);

@@ -4374,8 +4374,9 @@ RDResult D3D11_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IRepl
 
       SAFE_RELEASE(device);
 
-// in release try to fall back to a non-debug device
-#if ENABLED(RDOC_RELEASE)
+      // A Development build should still be able to replay on machines without the optional
+      // D3D11 debug layer. Keep validation as the first choice, then retry the same adapter and
+      // feature levels without it before moving to the next fallback.
       if(flags & D3D11_CREATE_DEVICE_DEBUG)
       {
         UINT noDebugFlags = flags & ~D3D11_CREATE_DEVICE_DEBUG;
@@ -4397,7 +4398,6 @@ RDResult D3D11_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IRepl
           break;
         }
       }
-#endif
 
       RDCLOG("Device creation failed, %s", ToStr(hr).c_str());
     }
@@ -4464,11 +4464,6 @@ RDResult D3D11_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IRepl
   SAFE_RELEASE(factory);
 
   rdcstr error = "Couldn't create any compatible d3d11 device.";
-
-  if(flags & D3D11_CREATE_DEVICE_DEBUG)
-    error +=
-        "\n\nDevelopment SanQi Capture builds require D3D debug layers available, "
-        "ensure you have the windows SDK or windows feature needed.";
 
   RETURN_ERROR_RESULT(ResultCode::APIHardwareUnsupported, "%s", error.c_str());
 }

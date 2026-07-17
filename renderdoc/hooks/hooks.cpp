@@ -32,17 +32,23 @@ static rdcarray<LibraryHook *> &LibList()
   return libs;
 }
 
-LibraryHook::LibraryHook()
+LibraryHook::LibraryHook(Type type) : m_Type(type)
 {
   LibList().push_back(this);
 }
 
-void LibraryHooks::RegisterHooks()
+void LibraryHooks::RegisterHooks(LibraryHookRegistration registration)
 {
   BeginHookRegistration();
 
   for(LibraryHook *lib : LibList())
+  {
+    if(registration == LibraryHookRegistration::D3D11AndDXGI &&
+       lib->m_Type != LibraryHook::Type::D3D11 && lib->m_Type != LibraryHook::Type::DXGI)
+      continue;
+
     lib->RegisterHooks();
+  }
 
   EndHookRegistration();
 }

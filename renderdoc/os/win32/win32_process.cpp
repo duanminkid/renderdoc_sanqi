@@ -57,6 +57,9 @@ static void SqcDiagLog(const char *msg)
   }
 }
 
+static uint32_t ReadProxyIdent(const rdcstr &identFile);
+static uint32_t WaitForProxyIdentFile(const rdcstr &identFile, HANDLE process, DWORD timeoutMS);
+
 static uint32_t ReadTargetIdentFile(uint32_t pid)
 {
   wchar_t path[MAX_PATH] = {};
@@ -79,6 +82,57 @@ static uint32_t ReadTargetIdentFile(uint32_t pid)
     return 0;
 
   return (uint32_t)strtoul(buf, NULL, 10);
+}
+
+static uint32_t WaitForTargetIdentFile(uint32_t pid, HANDLE process, DWORD timeoutMS)
+{
+  DWORD start = GetTickCount();
+  DWORD exitCode = STILL_ACTIVE;
+
+  for(;;)
+  {
+    uint32_t ident = ReadTargetIdentFile(pid);
+    if(ident != 0)
+      return ident;
+
+    if(process != NULL && GetExitCodeProcess(process, &exitCode) && exitCode != STILL_ACTIVE)
+      return 0;
+
+    if(GetTickCount() - start >= timeoutMS)
+      return 0;
+
+    Sleep(25);
+  }
+}
+
+static void SignalInjectionComplete(uint32_t pid)
+{
+  wchar_t eventName[64] = {};
+  swprintf_s(eventName, L"Local\\SQC_InjectComplete_%u", pid);
+  HANDLE event = OpenEventW(EVENT_MODIFY_STATE, FALSE, eventName);
+  if(event == NULL)
+    return;
+
+  SetEvent(event);
+  CloseHandle(event);
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] InjectionComplete signalled pid=%u\r\n", pid)
+                 .c_str());
+}
+
+static bool IsYuanShenProcess(HANDLE process)
+{
+  wchar_t processPath[MAX_PATH] = {};
+  DWORD processPathSize = MAX_PATH;
+  if(!QueryFullProcessImageNameW(process, 0, processPath, &processPathSize))
+    return false;
+
+  const wchar_t *backslash = wcsrchr(processPath, L'\\');
+  const wchar_t *slash = wcsrchr(processPath, L'/');
+  const wchar_t *base = backslash;
+  if(slash != NULL && (base == NULL || slash > base))
+    base = slash;
+  base = base != NULL ? base + 1 : processPath;
+  return _wcsicmp(base, L"YuanShen.exe") == 0;
 }
 
 // NtCreateThreadEx: undocumented NT API (kept for future use)
@@ -365,17 +419,38 @@ extern "C" __declspec(dllexport) void __cdecl INTERNAL_ApplyEnvMods(void *ignore
 }
 
 static const DWORD InjectRemoteThreadTimeoutMS = 30000;
+static rdcstr InjectDLLFailure;
 
 bool InjectDLL(HANDLE hProcess, rdcwstr libName)
 {
+  InjectDLLFailure.clear();
+
   wchar_t dllPath[MAX_PATH + 1] = {0};
   wcscpy_s(dllPath, libName.c_str());
+
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] InjectDLL BEGIN: tick=%u path='%s'\r\n",
+                               GetTickCount(), StringFormat::Wide2UTF8(dllPath).c_str())
+                 .c_str());
 
   static HMODULE kernel32 = GetModuleHandleA("kernel32.dll");
 
   if(kernel32 == NULL)
   {
     RDCERR("Couldn't get handle for kernel32.dll");
+    InjectDLLFailure = "kernel32.dll handle is null";
+    SqcDiagLog("[SQC-DIAG] InjectDLL failed: kernel32 handle is null\r\n");
+    return false;
+  }
+
+  FARPROC loadLibraryW = GetProcAddress(kernel32, "LoadLibraryW");
+  if(loadLibraryW == NULL)
+  {
+    DWORD err = GetLastError();
+    RDCERR("Couldn't get LoadLibraryW address: %u", err);
+    InjectDLLFailure = StringFormat::Fmt("GetProcAddress(LoadLibraryW) failed with err %u", err);
+    SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] InjectDLL failed: LoadLibraryW missing err=%u\r\n",
+                                 err)
+                   .c_str());
     return false;
   }
 
@@ -384,19 +459,32 @@ bool InjectDLL(HANDLE hProcess, rdcwstr libName)
       VirtualAllocEx(hProcess, NULL, sizeof(dllPath), MEM_COMMIT, PAGE_READWRITE);
   if(remoteMem)
   {
+    SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] InjectDLL remote memory=%p bytes=%llu\r\n",
+                                 remoteMem, (unsigned long long)sizeof(dllPath))
+                   .c_str());
+
     BOOL success = WriteProcessMemory(hProcess, remoteMem, (void *)dllPath, sizeof(dllPath), NULL);
     if(success)
     {
+      SqcDiagLog("[SQC-DIAG] InjectDLL WriteProcessMemory OK\r\n");
+
       HANDLE hThread = CreateRemoteThread(
-          hProcess, NULL, 1024 * 1024U,
-          (LPTHREAD_START_ROUTINE)GetProcAddress(kernel32, "LoadLibraryW"), remoteMem, 0, NULL);
+          hProcess, NULL, 1024 * 1024U, (LPTHREAD_START_ROUTINE)loadLibraryW, remoteMem, 0, NULL);
       if(hThread)
       {
+        SqcDiagLog("[SQC-DIAG] InjectDLL CreateRemoteThread OK\r\n");
+
         DWORD waitRet = WaitForSingleObject(hThread, InjectRemoteThreadTimeoutMS);
         if(waitRet != WAIT_OBJECT_0)
         {
+          DWORD err = GetLastError();
           RDCERR("Timed out waiting for remote LoadLibraryW thread, wait result: %u, err: %u",
-                 waitRet, GetLastError());
+                 waitRet, err);
+          InjectDLLFailure =
+              StringFormat::Fmt("remote LoadLibraryW wait failed waitRet=%u err=%u", waitRet, err);
+          SqcDiagLog(StringFormat::Fmt(
+                         "[SQC-DIAG] InjectDLL wait failed waitRet=%u err=%u\r\n", waitRet, err)
+                         .c_str());
           CloseHandle(hThread);
           return false;
         }
@@ -410,23 +498,38 @@ bool InjectDLL(HANDLE hProcess, rdcwstr libName)
                   GetTickCount(), threadExitCode, GetLastError());
         SqcDiagLog(diagBuf);
         ret = (threadExitCode != 0);
+        if(!ret)
+          InjectDLLFailure = "remote LoadLibraryW returned NULL";
       }
       else
       {
-        RDCERR("Couldn't create remote thread for LoadLibraryW: %u", GetLastError());
+        DWORD err = GetLastError();
+        RDCERR("Couldn't create remote thread for LoadLibraryW: %u", err);
+        InjectDLLFailure = StringFormat::Fmt("CreateRemoteThread failed with err %u", err);
+        SqcDiagLog(StringFormat::Fmt(
+                       "[SQC-DIAG] InjectDLL CreateRemoteThread failed err=%u\r\n", err)
+                       .c_str());
       }
     }
     else
     {
-      RDCERR("Couldn't write remote memory %p with dllPath '%ls': %u", remoteMem, dllPath,
-             GetLastError());
+      DWORD err = GetLastError();
+      RDCERR("Couldn't write remote memory %p with dllPath '%ls': %u", remoteMem, dllPath, err);
+      InjectDLLFailure = StringFormat::Fmt("WriteProcessMemory failed with err %u", err);
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] InjectDLL WriteProcessMemory failed err=%u\r\n", err)
+                     .c_str());
     }
 
     VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
   }
   else
   {
-    RDCERR("Couldn't allocate remote memory for DLL '%ls': %u", libName.c_str(), GetLastError());
+    DWORD err = GetLastError();
+    RDCERR("Couldn't allocate remote memory for DLL '%ls': %u", libName.c_str(), err);
+    InjectDLLFailure = StringFormat::Fmt("VirtualAllocEx failed with err %u", err);
+    SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] InjectDLL VirtualAllocEx failed err=%u\r\n", err)
+                   .c_str());
   }
 
   return ret;
@@ -737,6 +840,10 @@ static PROCESS_INFORMATION RunProcess(const rdcstr &app, const rdcstr &workingDi
       envString += StringFormat::UTF82Wide(it->second).c_str();
       envString.push_back(0);
     }
+
+    // Environment blocks passed to CreateProcessW must be terminated by an extra NUL.
+    if(!envString.empty())
+      envString.push_back(0);
   }
 
   BOOL retValue = CreateProcessW(
@@ -750,8 +857,10 @@ static PROCESS_INFORMATION RunProcess(const rdcstr &app, const rdcstr &workingDi
     // diagnostic: log CreateProcessW success
     char diagBuf[512];
     wsprintfA(diagBuf,
-              "[SQC-DIAG] RunProcess SUCCESS: tick=%u pid=%u app='%s' workdir='%s'\r\n",
-              GetTickCount(), pi.dwProcessId, app.c_str(), workingDir.c_str());
+              "[SQC-DIAG] RunProcess SUCCESS: tick=%u pid=%u app='%s' inputWorkDir='%s' "
+              "actualWorkDir='%s'\r\n",
+              GetTickCount(), pi.dwProcessId, app.c_str(), workingDir.c_str(),
+              StringFormat::Wide2UTF8(workdir).c_str());
     SqcDiagLog(diagBuf);
   }
 
@@ -786,6 +895,44 @@ static PROCESS_INFORMATION RunProcess(const rdcstr &app, const rdcstr &workingDi
   return pi;
 }
 
+static bool SqcLaunchEnvSets(const rdcarray<EnvironmentModification> &env, const rdcstr &name,
+                             const rdcstr &value)
+{
+  const rdcstr lowerName = strlower(name);
+  for(const EnvironmentModification &e : env)
+  {
+    if(strlower(e.name) == lowerName && e.mod == EnvMod::Set && e.value == value)
+      return true;
+  }
+
+  return false;
+}
+
+static bool SqcLaunchEnvEnabled(const rdcarray<EnvironmentModification> &env, const rdcstr &name)
+{
+  return Process::GetEnvVariable(name) == "1" || SqcLaunchEnvSets(env, name, "1");
+}
+
+static void AddEnvMod(rdcarray<EnvironmentModification> &env, const rdcstr &name,
+                      const rdcstr &value);
+static void AddYuanShenDirectEnv(rdcarray<EnvironmentModification> &env);
+
+static void SqcDiagLogEnvState(const char *label, const rdcarray<EnvironmentModification> &env)
+{
+  SqcDiagLog(StringFormat::Fmt(
+                 "[SQC-DIAG] EnvState %s direct=%u d3d11DxgiOnly=%u inlineHooks=%u proxy=%u swapWrap=%u targetControlOnly=%u rawD3D11=%u disableBootstrap=%u disableMinimal=%u\r\n",
+                 label, SqcLaunchEnvEnabled(env, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD") ? 1 : 0,
+                 SqcLaunchEnvEnabled(env, "SQC_D3D11_LIGHT_HOOKS") ? 1 : 0,
+                 SqcLaunchEnvEnabled(env, "SQC_YUANSHEN_INLINE_HOOKS") ? 1 : 0,
+                 SqcLaunchEnvEnabled(env, "SQC_D3D11_PROXY") ? 1 : 0,
+                 SqcLaunchEnvEnabled(env, "SQC_YUANSHEN_SWAPCHAIN_WRAP") ? 1 : 0,
+                 SqcLaunchEnvEnabled(env, "SQC_TARGET_CONTROL_ONLY") ? 1 : 0,
+                 SqcLaunchEnvEnabled(env, "SQC_D3D11_RAW_PASSTHROUGH") ? 1 : 0,
+                 SqcLaunchEnvEnabled(env, "SQC_DISABLE_YUANSHEN_BOOTSTRAP_ONLY") ? 1 : 0,
+                 SqcLaunchEnvEnabled(env, "SQC_DISABLE_YUANSHEN_MINIMAL_LOAD") ? 1 : 0)
+                 .c_str());
+}
+
 rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
                                                        const rdcarray<EnvironmentModification> &env,
                                                        const rdcstr &capturefile,
@@ -800,11 +947,28 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
   }
 
   rdcwstr wcapturefile = StringFormat::UTF82Wide(capturefile);
+  rdcarray<EnvironmentModification> injectEnv = env;
 
   HANDLE hProcess =
       OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION |
                       PROCESS_VM_WRITE | PROCESS_VM_READ | SYNCHRONIZE,
                   FALSE, pid);
+
+  if(hProcess == NULL)
+  {
+    DWORD err = GetLastError();
+    SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] InjectIntoProcess OpenProcess failed pid=%u err=%u\r\n",
+                                 pid, err)
+                   .c_str());
+
+    RDResult result;
+    SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                     "Failed to open process %u for injection (err %u).", pid, err);
+    return {result, 0};
+  }
+
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] InjectIntoProcess OpenProcess OK pid=%u\r\n", pid)
+                 .c_str());
 
   if(opts.delayForDebugger > 0)
   {
@@ -837,6 +1001,68 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
   if(selfModule == NULL)
     selfModule = GetCachedSelfModuleHandle();
   GetModuleFileNameW(selfModule, &renderdocPath[0], MAX_PATH - 1);
+
+  bool yuanShenBootstrapDeferred = false;
+  wchar_t originalRenderdocPath[MAX_PATH] = {};
+  rdcstr yuanShenBootstrapIdentFile;
+  wcscpy_s(originalRenderdocPath, renderdocPath);
+  const bool yuanShenTarget = IsYuanShenProcess(hProcess);
+  if(yuanShenTarget)
+  {
+    if(!SqcLaunchEnvEnabled(injectEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD") &&
+       !SqcLaunchEnvEnabled(injectEnv, "SQC_D3D11_PROXY"))
+    {
+      AddYuanShenDirectEnv(injectEnv);
+      SqcDiagLog("[SQC-DIAG] YuanShen direct system_load inject env forced because D3D11 proxy is off\r\n");
+    }
+    yuanShenBootstrapDeferred =
+        !SqcLaunchEnvEnabled(injectEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD") &&
+        !SqcLaunchEnvEnabled(injectEnv, "SQC_DISABLE_YUANSHEN_BOOTSTRAP_ONLY");
+  }
+
+  SqcDiagLog(StringFormat::Fmt(
+                 "[SQC-DIAG] YuanShen inject decision target=%u direct=%u proxy=%u bootstrapDeferred=%u\r\n",
+                 yuanShenTarget ? 1 : 0,
+                 SqcLaunchEnvEnabled(injectEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD") ? 1 : 0,
+                 SqcLaunchEnvEnabled(injectEnv, "SQC_D3D11_PROXY") ? 1 : 0,
+                 yuanShenBootstrapDeferred ? 1 : 0)
+                 .c_str());
+  SqcDiagLogEnvState("inject", injectEnv);
+
+  if(yuanShenBootstrapDeferred)
+  {
+    wchar_t *slash = wcsrchr(renderdocPath, L'\\');
+    if(slash)
+    {
+      slash[1] = 0;
+      wcscat_s(renderdocPath, L"d3d11_proxy.dll");
+
+      wchar_t identPath[MAX_PATH] = {};
+      GetTempPathW(MAX_PATH, identPath);
+      wcscat_s(identPath, L"sqc_proxy_bootstrap_ident_");
+      wchar_t pidText[32] = {};
+      swprintf_s(pidText, L"%u.txt", pid);
+      wcscat_s(identPath, pidText);
+
+      SetEnvironmentVariableA("SQC_PROXY_IDENT_FILE",
+                              StringFormat::Wide2UTF8(identPath).c_str());
+
+      yuanShenBootstrapIdentFile = StringFormat::Wide2UTF8(identPath);
+      rdcstr sidecarPath = StringFormat::Wide2UTF8(renderdocPath) + ".sqcproxy";
+      rdcstr sidecarContents = StringFormat::Fmt("%s\n%s\n%s\n%s\n%s\ndefer_capture\n",
+                                                 StringFormat::Wide2UTF8(originalRenderdocPath).c_str(),
+                                                 capturefile.c_str(), opts.EncodeAsString().c_str(),
+                                                 RDCGETLOGFILE(),
+                                                 StringFormat::Wide2UTF8(identPath).c_str());
+      FileIO::WriteAll(sidecarPath, sidecarContents);
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] YuanShen bootstrap-deferred payload='%s' systemLoad='%s' identFile='%s' sidecar='%s'\r\n",
+                     StringFormat::Wide2UTF8(renderdocPath).c_str(),
+                     StringFormat::Wide2UTF8(originalRenderdocPath).c_str(),
+                     StringFormat::Wide2UTF8(identPath).c_str(), sidecarPath.c_str())
+                     .c_str());
+    }
+  }
 
   // Diagnose injector path resolution
   {
@@ -1084,11 +1310,11 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
     std::wstring cmdWithEnv;
 
-    if(!env.empty())
+    if(!injectEnv.empty())
     {
       cmdWithEnv = paramsAlloc;
 
-      for(const EnvironmentModification &e : env)
+      for(const EnvironmentModification &e : injectEnv)
       {
         rdcstr name = e.name.trimmed();
         rdcstr value = e.value;
@@ -1207,10 +1433,159 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
   rdcpair<RDResult, uint32_t> result = {ResultCode::Succeeded, 0};
 
+  const bool directSystemLoad =
+      yuanShenTarget && SqcLaunchEnvEnabled(injectEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD");
+  HANDLE directInjectionCompleteEvent = NULL;
+  HANDLE directHooksReadyEvent = NULL;
+  HANDLE directHooksFailedEvent = NULL;
+  if(directSystemLoad)
+  {
+    wchar_t eventName[64] = {};
+    swprintf_s(eventName, L"Local\\SQC_InjectComplete_%u", pid);
+    directInjectionCompleteEvent = CreateEventW(NULL, TRUE, FALSE, eventName);
+    swprintf_s(eventName, L"Local\\SQC_HooksReady_%u", pid);
+    directHooksReadyEvent = CreateEventW(NULL, TRUE, FALSE, eventName);
+    swprintf_s(eventName, L"Local\\SQC_HooksFailed_%u", pid);
+    directHooksFailedEvent = CreateEventW(NULL, TRUE, FALSE, eventName);
+
+    if(directInjectionCompleteEvent == NULL || directHooksReadyEvent == NULL ||
+       directHooksFailedEvent == NULL)
+    {
+      SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
+                       "Failed to create capture hook status events for process %u.", pid);
+      if(directHooksFailedEvent != NULL)
+        CloseHandle(directHooksFailedEvent);
+      if(directHooksReadyEvent != NULL)
+        CloseHandle(directHooksReadyEvent);
+      if(directInjectionCompleteEvent != NULL)
+        CloseHandle(directInjectionCompleteEvent);
+      CloseHandle(hProcess);
+      return result;
+    }
+  }
+
   if(!InjectDLL(hProcess, renderdocPath))
   {
+    rdcstr failure = InjectDLLFailure.empty() ? "no detailed failure was recorded" : InjectDLLFailure;
     SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
-                     "Timed out or failed loading %s.dll into process.", rdoc_dll);
+                      "Timed out or failed loading %s.dll into process: %s.", rdoc_dll,
+                      failure.c_str());
+    if(directHooksFailedEvent != NULL)
+      CloseHandle(directHooksFailedEvent);
+    if(directHooksReadyEvent != NULL)
+      CloseHandle(directHooksReadyEvent);
+    if(directInjectionCompleteEvent != NULL)
+      CloseHandle(directInjectionCompleteEvent);
+    CloseHandle(hProcess);
+    return result;
+  }
+
+  if(directSystemLoad)
+  {
+    uintptr_t remoteModule = FindRemoteDLL(pid, STRINGIZE(RDOC_BASE_NAME) ".dll");
+    const rdcstr encodedOptions = opts.EncodeAsString();
+    bool directConfigOK = remoteModule != 0;
+
+    if(directConfigOK)
+    {
+      directConfigOK = InjectFunctionCall(hProcess, remoteModule, "INTERNAL_SetCaptureFile",
+                                          (void *)capturefile.c_str(), capturefile.size() + 1);
+    }
+
+    if(directConfigOK)
+    {
+      directConfigOK = InjectFunctionCall(
+          hProcess, remoteModule, "INTERNAL_StartYuanShenDirectHooks",
+          (void *)encodedOptions.c_str(), encodedOptions.size() + 1);
+    }
+
+    if(!directConfigOK)
+    {
+      SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
+                       "Failed to configure and start direct capture hooks in process %u.", pid);
+      SignalInjectionComplete(pid);
+      if(directHooksFailedEvent != NULL)
+        CloseHandle(directHooksFailedEvent);
+      if(directHooksReadyEvent != NULL)
+        CloseHandle(directHooksReadyEvent);
+      if(directInjectionCompleteEvent != NULL)
+        CloseHandle(directInjectionCompleteEvent);
+      CloseHandle(hProcess);
+      return result;
+    }
+  }
+
+  SignalInjectionComplete(pid);
+
+  if(yuanShenBootstrapDeferred)
+  {
+    result.second = WaitForProxyIdentFile(yuanShenBootstrapIdentFile, hProcess, 20000);
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] YuanShen bootstrap-deferred injected pid=%u ident=%u\r\n", pid,
+                   result.second)
+                   .c_str());
+
+    if(result.second == 0)
+    {
+      SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
+                       "Timed out waiting for deferred capture bootstrap target control.");
+    }
+
+    CloseHandle(hProcess);
+    return result;
+  }
+
+  const bool targetControlOnly = SqcLaunchEnvEnabled(injectEnv, "SQC_TARGET_CONTROL_ONLY") &&
+                                 !SqcLaunchEnvEnabled(
+                                     injectEnv, "SQC_DISABLE_YUANSHEN_TARGET_CONTROL_ONLY");
+  const bool minimalYuanshenLoad =
+      IsYuanShenProcess(hProcess) && (directSystemLoad || targetControlOnly);
+
+  if(minimalYuanshenLoad)
+  {
+    result.second = WaitForTargetIdentFile(pid, hProcess, 10000);
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] MinimalLoad skip remote lookup/config pid=%u identFile=%u\r\n", pid,
+                   result.second)
+                   .c_str());
+
+    if(result.second == 0)
+    {
+      SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
+                       "Injected %s.dll did not report a target control connection.", rdoc_dll);
+    }
+
+    if(directSystemLoad && result.second != 0)
+    {
+      HANDLE hookStatusEvents[] = {directHooksReadyEvent, directHooksFailedEvent};
+      DWORD hookStatus =
+          WaitForMultipleObjects(ARRAY_COUNT(hookStatusEvents), hookStatusEvents, FALSE, 15000);
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] DirectInject HookStatus wait pid=%u result=%u err=%u\r\n", pid,
+                     hookStatus, hookStatus == WAIT_FAILED ? GetLastError() : 0)
+                     .c_str());
+
+      if(hookStatus == WAIT_OBJECT_0 + 1)
+      {
+        SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
+                         "Target process %u failed to register capture hooks.", pid);
+      }
+      else if(hookStatus != WAIT_OBJECT_0)
+      {
+        SET_ERROR_RESULT(result.first, ResultCode::InjectionFailed,
+                         "Timed out waiting for target process %u capture hooks.", pid);
+      }
+    }
+
+    if(directHooksFailedEvent != NULL)
+      CloseHandle(directHooksFailedEvent);
+    if(directHooksReadyEvent != NULL)
+      CloseHandle(directHooksReadyEvent);
+    if(directInjectionCompleteEvent != NULL)
+      CloseHandle(directInjectionCompleteEvent);
+
+    if(waitForExit)
+      WaitForSingleObject(hProcess, INFINITE);
     CloseHandle(hProcess);
     return result;
   }
@@ -1231,7 +1606,6 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
     bool setupOK = true;
     bool captureTemplateConfigured = capturefile.empty();
     const char *failedFunc = NULL;
-
     if(!capturefile.empty())
     {
       setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_SetCaptureFile",
@@ -1271,9 +1645,9 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
       }
     }
 
-    if(setupOK && !env.empty())
+    if(setupOK && !injectEnv.empty())
     {
-      for(const EnvironmentModification &e : env)
+      for(const EnvironmentModification &e : injectEnv)
       {
         rdcstr name = e.name.trimmed();
         rdcstr value = e.value;
@@ -1453,6 +1827,18 @@ static void AddEnvMod(rdcarray<EnvironmentModification> &env, const rdcstr &name
   env.push_back(mod);
 }
 
+static void AddYuanShenDirectEnv(rdcarray<EnvironmentModification> &env)
+{
+  AddEnvMod(env, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD", "1");
+  AddEnvMod(env, "SQC_D3D11_LIGHT_HOOKS", "1");
+  AddEnvMod(env, "SQC_YUANSHEN_INLINE_HOOKS", "1");
+}
+
+static bool IsYuanShenLaunchTarget(const rdcstr &app)
+{
+  return strlower(get_basename(app)) == "yuanshen.exe";
+}
+
 static bool WantsD3D11Proxy(const rdcarray<EnvironmentModification> &env)
 {
   for(const EnvironmentModification &e : env)
@@ -1483,6 +1869,27 @@ static uint32_t ReadProxyIdent(const rdcstr &identFile)
     return 0;
 
   return (uint32_t)strtoul(buf, NULL, 10);
+}
+
+static uint32_t WaitForProxyIdentFile(const rdcstr &identFile, HANDLE process, DWORD timeoutMS)
+{
+  DWORD start = GetTickCount();
+  DWORD exitCode = STILL_ACTIVE;
+
+  for(;;)
+  {
+    uint32_t ident = ReadProxyIdent(identFile);
+    if(ident != 0)
+      return ident;
+
+    if(process != NULL && GetExitCodeProcess(process, &exitCode) && exitCode != STILL_ACTIVE)
+      return 0;
+
+    if(GetTickCount() - start >= timeoutMS)
+      return 0;
+
+    Sleep(100);
+  }
 }
 
 static bool IsSanQiD3D11ProxyPayload(const rdcstr &path)
@@ -1627,8 +2034,8 @@ static DWORD FindMatchingProcessByPath(const rdcstr &targetPath, DWORD launchedP
 }
 
 static rdcpair<RDResult, uint32_t> WaitForRelaunchedProcessAndInject(
-    const rdcstr &app, DWORD launchedPid, const rdcstr &capturefile, const CaptureOptions &opts,
-    DWORD timeoutMS)
+    const rdcstr &app, DWORD launchedPid, const rdcarray<EnvironmentModification> &env,
+    const rdcstr &capturefile, const CaptureOptions &opts, DWORD timeoutMS)
 {
   rdcarray<DWORD> attemptedPids;
   rdcarray<DWORD> seenPids;
@@ -1654,7 +2061,7 @@ static rdcpair<RDResult, uint32_t> WaitForRelaunchedProcessAndInject(
       Threading::Sleep(500);
 
       rdcpair<RDResult, uint32_t> ret =
-          Process::InjectIntoProcess(pid, {}, capturefile, opts, false);
+          Process::InjectIntoProcess(pid, env, capturefile, opts, false);
 
       SqcDiagLog(StringFormat::Fmt(
                      "[SQC-DIAG] RelaunchWait inject pid=%u code=%d ident=%u msg='%s'\r\n", pid,
@@ -1753,12 +2160,48 @@ rdcpair<RDResult, uint32_t> Process::LaunchWithD3D11Proxy(
   identFile += ".txt";
   SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy ident='%s'\r\n", identFile.c_str()).c_str());
 
+  rdcstr proxySystemLoad = StringFormat::Wide2UTF8(systemLoadPath);
+  rdcstr targetSystemLoad = SiblingPath(app, "sqc_system_load.dll");
+  if(CopyFileW(systemLoadPath, StringFormat::UTF82Wide(targetSystemLoad).c_str(), FALSE))
+  {
+    proxySystemLoad = targetSystemLoad;
+    SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy local system_load='%s'\r\n",
+                                 proxySystemLoad.c_str())
+                   .c_str());
+  }
+  else
+  {
+    DWORD err = GetLastError();
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] D3D11Proxy local system_load copy failed err=%u path='%s'\r\n",
+                   err, targetSystemLoad.c_str())
+                   .c_str());
+  }
+
   rdcarray<EnvironmentModification> proxyEnv = env;
-  AddEnvMod(proxyEnv, "SQC_PROXY_SYSTEM_LOAD", StringFormat::Wide2UTF8(systemLoadPath));
+  AddEnvMod(proxyEnv, "SQC_PROXY_SYSTEM_LOAD", proxySystemLoad);
   AddEnvMod(proxyEnv, "SQC_PROXY_CAPTURE_FILE", capturefile);
   AddEnvMod(proxyEnv, "SQC_PROXY_CAPTURE_OPTS", opts.EncodeAsString());
   AddEnvMod(proxyEnv, "SQC_PROXY_DEBUG_LOG", RDCGETLOGFILE());
   AddEnvMod(proxyEnv, "SQC_PROXY_IDENT_FILE", identFile);
+
+  rdcstr proxyConfig = targetProxy + ".sqcproxy";
+  rdcstr proxyConfigContents = StringFormat::Fmt("%s\n%s\n%s\n%s\n%s\n",
+                                                 proxySystemLoad.c_str(), capturefile.c_str(),
+                                                 opts.EncodeAsString().c_str(), RDCGETLOGFILE(),
+                                                 identFile.c_str());
+  if(FileIO::WriteAll(proxyConfig, proxyConfigContents))
+  {
+    SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy sidecar='%s'\r\n",
+                                 proxyConfig.c_str())
+                   .c_str());
+  }
+  else
+  {
+    SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy sidecar write failed path='%s'\r\n",
+                                 proxyConfig.c_str())
+                   .c_str());
+  }
 
   PROCESS_INFORMATION pi = RunProcess(app, workingDir, cmdLine, proxyEnv, false, NULL, NULL);
 
@@ -1777,6 +2220,7 @@ rdcpair<RDResult, uint32_t> Process::LaunchWithD3D11Proxy(
   uint32_t ident = 0;
   DWORD exitCode = STILL_ACTIVE;
   DWORD start = GetTickCount();
+  DWORD proxyMissingSince = 0;
   while(GetTickCount() - start < 15000)
   {
     ident = ReadProxyIdent(identFile);
@@ -1786,27 +2230,108 @@ rdcpair<RDResult, uint32_t> Process::LaunchWithD3D11Proxy(
     if(GetExitCodeProcess(pi.hProcess, &exitCode) && exitCode != STILL_ACTIVE)
       break;
 
+    bool targetStillExists =
+        GetFileAttributesW(StringFormat::UTF82Wide(targetProxy).c_str()) != INVALID_FILE_ATTRIBUTES;
+    if(!targetStillExists)
+    {
+      DWORD now = GetTickCount();
+      if(proxyMissingSince == 0)
+      {
+        proxyMissingSince = now;
+        SqcDiagLog(StringFormat::Fmt(
+                       "[SQC-DIAG] D3D11Proxy target removed while waiting tick=%u\r\n", now)
+                       .c_str());
+      }
+
+      // If the game removes the proxy before it reports ident, the sideload path is gone.
+      // Fall back quickly, before late anti-tamper startup makes direct injection less likely.
+      if(now - proxyMissingSince >= 2000)
+        break;
+    }
+
     Sleep(100);
   }
 
   if(waitForExit)
     WaitForSingleObject(pi.hProcess, INFINITE);
 
-  CloseHandle(pi.hThread);
-  CloseHandle(pi.hProcess);
-
   if(ident == 0)
   {
+    rdcstr fallbackFailure;
     bool targetStillExists =
         GetFileAttributesW(StringFormat::UTF82Wide(targetProxy).c_str()) != INVALID_FILE_ATTRIBUTES;
     SqcDiagLog(StringFormat::Fmt(
                    "[SQC-DIAG] D3D11Proxy no ident exitCode=%u targetStillExists=%u\r\n", exitCode,
                    targetStillExists ? 1 : 0)
                    .c_str());
-    SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
-                     "D3D11 proxy launched the process but did not report target control.");
+
+    if(exitCode == STILL_ACTIVE)
+    {
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] D3D11Proxy fallback direct inject pid=%u\r\n",
+                     pi.dwProcessId)
+                     .c_str());
+
+      rdcarray<EnvironmentModification> directEnv = env;
+      AddYuanShenDirectEnv(directEnv);
+
+      rdcpair<RDResult, uint32_t> direct =
+          Process::InjectIntoProcess(pi.dwProcessId, directEnv, capturefile, opts, false);
+
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] D3D11Proxy fallback direct result code=%d ident=%u msg='%s'\r\n",
+                     (int)direct.first.code, direct.second, direct.first.message.c_str())
+                     .c_str());
+
+      if(direct.first == ResultCode::Succeeded && direct.second != 0)
+      {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return direct;
+      }
+
+      fallbackFailure = direct.first.message;
+      if(fallbackFailure.empty() && direct.first == ResultCode::Succeeded && direct.second == 0)
+        fallbackFailure = "direct injection returned no target control ident";
+
+      if(opts.hookIntoChildren)
+      {
+        rdcpair<RDResult, uint32_t> relaunched =
+            WaitForRelaunchedProcessAndInject(app, pi.dwProcessId, directEnv, capturefile, opts,
+                                              10000);
+
+        if(relaunched.first == ResultCode::Succeeded && relaunched.second != 0)
+        {
+          CloseHandle(pi.hThread);
+          CloseHandle(pi.hProcess);
+          return relaunched;
+        }
+
+        if(!relaunched.first.message.empty())
+          fallbackFailure = relaunched.first.message;
+      }
+    }
+
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+
+    if(!fallbackFailure.empty())
+    {
+      SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                       "D3D11 proxy launched the process but did not report target control. "
+                       "Fallback injection also failed: %s",
+                       fallbackFailure.c_str());
+    }
+    else
+    {
+      SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                       "D3D11 proxy launched the process but did not report target control.");
+    }
     return {result, 0};
   }
+
+  CloseHandle(pi.hThread);
+  CloseHandle(pi.hProcess);
 
   SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] D3D11Proxy SUCCESS ident=%u\r\n", ident).c_str());
   return {ResultCode::Succeeded, ident};
@@ -1819,6 +2344,21 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
 {
   if(WantsD3D11Proxy(env))
     return LaunchWithD3D11Proxy(app, workingDir, cmdLine, env, capturefile, opts, waitForExit);
+
+  rdcarray<EnvironmentModification> launchEnv = env;
+  if(IsYuanShenLaunchTarget(app) && !SqcLaunchEnvEnabled(launchEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD"))
+  {
+    AddYuanShenDirectEnv(launchEnv);
+    SqcDiagLog("[SQC-DIAG] YuanShen direct system_load launch env forced because D3D11 proxy is off\r\n");
+  }
+
+  if(IsYuanShenLaunchTarget(app) &&
+     SqcLaunchEnvEnabled(launchEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD"))
+  {
+    AddEnvMod(launchEnv, "SQC_DIRECT_CAPTURE_FILE", capturefile);
+    AddEnvMod(launchEnv, "SQC_DIRECT_CAPTURE_OPTS", opts.EncodeAsString());
+  }
+  SqcDiagLogEnvState("launch", launchEnv);
 
   // Try cached proc address first (survives PE header wipe after stealth injection).
   // Tool processes (qrenderdoc etc.) skip CacheSelfModuleHandle in DllMain, so cache
@@ -1858,7 +2398,7 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     return {result, 0};
   }
 
-  PROCESS_INFORMATION pi = RunProcess(app, workingDir, cmdLine, env, false, NULL, NULL);
+  PROCESS_INFORMATION pi = RunProcess(app, workingDir, cmdLine, launchEnv, false, NULL, NULL);
 
   if(pi.dwProcessId == 0)
   {
@@ -1867,10 +2407,23 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     return {result, 0};
   }
 
-  ResumeThread(pi.hThread);
-  ResumeThread(pi.hThread);
-
   const bool steamLaunchTarget = IsLikelySteamLaunchTarget(app);
+  const bool yuanShenDirectTarget =
+      IsYuanShenLaunchTarget(app) &&
+      SqcLaunchEnvEnabled(launchEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD");
+  bool processResumed = false;
+
+  if(steamLaunchTarget || (opts.hookIntoChildren && !yuanShenDirectTarget))
+  {
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] ResumeThread before injection pid=%u steam=%u yuanshenDirect=%u hookChildren=%u\r\n",
+                   pi.dwProcessId, steamLaunchTarget ? 1 : 0, yuanShenDirectTarget ? 1 : 0,
+                   opts.hookIntoChildren ? 1 : 0)
+                   .c_str());
+    ResumeThread(pi.hThread);
+    processResumed = true;
+  }
+
   if(steamLaunchTarget)
   {
     SqcDiagLog(StringFormat::Fmt(
@@ -1879,7 +2432,7 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
                    .c_str());
 
     rdcpair<RDResult, uint32_t> relaunched =
-        WaitForRelaunchedProcessAndInject(app, pi.dwProcessId, capturefile, opts, 30000);
+        WaitForRelaunchedProcessAndInject(app, pi.dwProcessId, launchEnv, capturefile, opts, 30000);
 
     if(relaunched.first == ResultCode::Succeeded && relaunched.second != 0)
     {
@@ -1897,7 +2450,7 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
                      .c_str());
 
       rdcpair<RDResult, uint32_t> first =
-          InjectIntoProcess(pi.dwProcessId, {}, capturefile, opts, false);
+          InjectIntoProcess(pi.dwProcessId, launchEnv, capturefile, opts, false);
 
       CloseHandle(pi.hProcess);
       CloseHandle(pi.hThread);
@@ -1916,7 +2469,7 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     return relaunched;
   }
 
-  if(opts.hookIntoChildren)
+  if(opts.hookIntoChildren && !yuanShenDirectTarget)
   {
     DWORD firstExit = WaitForSingleObject(pi.hProcess, 5000);
     if(firstExit == WAIT_OBJECT_0)
@@ -1931,7 +2484,8 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
       CloseHandle(pi.hProcess);
       CloseHandle(pi.hThread);
 
-      return WaitForRelaunchedProcessAndInject(app, pi.dwProcessId, capturefile, opts, 30000);
+      return WaitForRelaunchedProcessAndInject(app, pi.dwProcessId, launchEnv, capturefile, opts,
+                                               30000);
     }
 
     SqcDiagLog(StringFormat::Fmt(
@@ -1940,7 +2494,175 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
                    .c_str());
   }
 
-  rdcpair<RDResult, uint32_t> ret = InjectIntoProcess(pi.dwProcessId, {}, capturefile, opts, false);
+  HANDLE injectionCompleteEvent = NULL;
+  HANDLE hooksReadyEvent = NULL;
+  HANDLE hooksFailedEvent = NULL;
+  DWORD injectionCompleteEventError = ERROR_SUCCESS;
+  DWORD hooksReadyEventError = ERROR_SUCCESS;
+  DWORD hooksFailedEventError = ERROR_SUCCESS;
+  if(yuanShenDirectTarget)
+  {
+    wchar_t eventName[64] = {};
+    SetLastError(ERROR_SUCCESS);
+    swprintf_s(eventName, L"Local\\SQC_InjectComplete_%u", pi.dwProcessId);
+    injectionCompleteEvent = CreateEventW(NULL, TRUE, FALSE, eventName);
+    injectionCompleteEventError = GetLastError();
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] InjectionComplete event create pid=%u handle=%p err=%u\r\n",
+                    pi.dwProcessId, injectionCompleteEvent, injectionCompleteEventError)
+                   .c_str());
+
+    SetLastError(ERROR_SUCCESS);
+    swprintf_s(eventName, L"Local\\SQC_HooksReady_%u", pi.dwProcessId);
+    hooksReadyEvent = CreateEventW(NULL, TRUE, FALSE, eventName);
+    hooksReadyEventError = GetLastError();
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] HooksReady event create pid=%u handle=%p err=%u\r\n",
+                   pi.dwProcessId, hooksReadyEvent, hooksReadyEventError)
+                   .c_str());
+
+    SetLastError(ERROR_SUCCESS);
+    swprintf_s(eventName, L"Local\\SQC_HooksFailed_%u", pi.dwProcessId);
+    hooksFailedEvent = CreateEventW(NULL, TRUE, FALSE, eventName);
+    hooksFailedEventError = GetLastError();
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] HooksFailed event create pid=%u handle=%p err=%u\r\n",
+                   pi.dwProcessId, hooksFailedEvent, hooksFailedEventError)
+                   .c_str());
+
+    const bool eventCreateFailed =
+        injectionCompleteEvent == NULL || hooksReadyEvent == NULL || hooksFailedEvent == NULL ||
+        injectionCompleteEventError == ERROR_ALREADY_EXISTS ||
+        hooksReadyEventError == ERROR_ALREADY_EXISTS ||
+        hooksFailedEventError == ERROR_ALREADY_EXISTS;
+    if(eventCreateFailed)
+    {
+      RDResult result;
+      SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                       "Failed to create hook coordination events for target process %u.",
+                       pi.dwProcessId);
+
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] Hook coordination event setup failed pid=%u errors=%u/%u/%u\r\n",
+                     pi.dwProcessId, injectionCompleteEventError, hooksReadyEventError,
+                     hooksFailedEventError)
+                     .c_str());
+
+      if(hooksFailedEvent != NULL)
+        CloseHandle(hooksFailedEvent);
+      if(hooksReadyEvent != NULL)
+        CloseHandle(hooksReadyEvent);
+      if(injectionCompleteEvent != NULL)
+        CloseHandle(injectionCompleteEvent);
+
+      // RunProcess created this process suspended. Do not leave an orphan if the handshake
+      // cannot be established before injection.
+      TerminateProcess(pi.hProcess, ERROR_INVALID_HANDLE);
+      CloseHandle(pi.hThread);
+      CloseHandle(pi.hProcess);
+      return {result, 0};
+    }
+  }
+
+  rdcpair<RDResult, uint32_t> ret =
+      InjectIntoProcess(pi.dwProcessId, launchEnv, capturefile, opts, false);
+  bool hookRegistrationReady = !yuanShenDirectTarget;
+
+  if(hooksReadyEvent != NULL && hooksFailedEvent != NULL && ret.second != 0)
+  {
+    HANDLE hookStatusEvents[] = {hooksReadyEvent, hooksFailedEvent};
+    DWORD hookStatus = WaitForMultipleObjects(ARRAY_COUNT(hookStatusEvents), hookStatusEvents,
+                                              FALSE, 15000);
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] HookStatus wait pid=%u result=%u err=%u\r\n", pi.dwProcessId,
+                   hookStatus, hookStatus == WAIT_FAILED ? GetLastError() : 0)
+                   .c_str());
+
+    if(hookStatus == WAIT_OBJECT_0 + 1)
+    {
+      SET_ERROR_RESULT(ret.first, ResultCode::InjectionFailed,
+                       "Target process %u failed to register capture hooks.", pi.dwProcessId);
+      TerminateProcess(pi.hProcess, ERROR_INVALID_FUNCTION);
+    }
+    else if(hookStatus != WAIT_OBJECT_0)
+    {
+      SET_ERROR_RESULT(ret.first, ResultCode::InjectionFailed,
+                       "Timed out waiting for target process %u capture hooks.", pi.dwProcessId);
+      TerminateProcess(pi.hProcess, WAIT_TIMEOUT);
+    }
+    else
+    {
+      uint32_t actualIdent = WaitForTargetIdentFile(pi.dwProcessId, pi.hProcess, 3000);
+      if(actualIdent == 0)
+      {
+        SET_ERROR_RESULT(ret.first, ResultCode::InjectionFailed,
+                         "Target process %u registered hooks but did not report target control.",
+                         pi.dwProcessId);
+        TerminateProcess(pi.hProcess, ERROR_INVALID_DATA);
+      }
+      else
+      {
+        ret.second = actualIdent;
+        hookRegistrationReady = true;
+        SqcDiagLog(StringFormat::Fmt(
+                       "[SQC-DIAG] HookStatus actual target ident pid=%u ident=%u\r\n",
+                       pi.dwProcessId, actualIdent)
+                       .c_str());
+      }
+    }
+  }
+  else if(hooksReadyEvent != NULL && hooksFailedEvent != NULL)
+  {
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] HookStatus wait skipped pid=%u ident=%u\r\n",
+                   pi.dwProcessId, ret.second)
+                   .c_str());
+  }
+
+  const bool canResume = !yuanShenDirectTarget ||
+                         (hookRegistrationReady && ret.first == ResultCode::Succeeded &&
+                          ret.second != 0);
+  if(!processResumed && canResume)
+  {
+    DWORD previousSuspendCount = ResumeThread(pi.hThread);
+    while(previousSuspendCount != DWORD(-1) && previousSuspendCount > 1)
+      previousSuspendCount = ResumeThread(pi.hThread);
+
+    if(previousSuspendCount == DWORD(-1))
+    {
+      DWORD resumeError = GetLastError();
+      SET_ERROR_RESULT(ret.first, ResultCode::InjectionFailed,
+                       "Failed to resume target process %u (err %u).", pi.dwProcessId,
+                       resumeError);
+      SqcDiagLog(StringFormat::Fmt(
+                      "[SQC-DIAG] ResumeThread failed pid=%u err=%u\r\n", pi.dwProcessId,
+                      resumeError)
+                      .c_str());
+      TerminateProcess(pi.hProcess, resumeError);
+    }
+    else
+    {
+      processResumed = true;
+      SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] ResumeThread succeeded pid=%u\r\n",
+                                   pi.dwProcessId)
+                     .c_str());
+    }
+  }
+  else if(!processResumed && yuanShenDirectTarget)
+  {
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] Target kept suspended because hook setup failed pid=%u\r\n",
+                   pi.dwProcessId)
+                   .c_str());
+    TerminateProcess(pi.hProcess, ERROR_INVALID_FUNCTION);
+  }
+
+  if(hooksFailedEvent != NULL)
+    CloseHandle(hooksFailedEvent);
+  if(hooksReadyEvent != NULL)
+    CloseHandle(hooksReadyEvent);
+  if(injectionCompleteEvent != NULL)
+    CloseHandle(injectionCompleteEvent);
 
   CloseHandle(pi.hProcess);
 

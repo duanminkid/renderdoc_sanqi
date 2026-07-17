@@ -77,8 +77,29 @@ static inline void SafeUnlinkEntry(LIST_ENTRY *entry)
 // ============================================================================
 // PEB Unlink: Remove module from all loader lists
 // ============================================================================
+typedef NTSTATUS(NTAPI *PFN_LdrLockLoaderLock)(ULONG flags, ULONG *disposition,
+                                               ULONG_PTR *cookie);
+typedef NTSTATUS(NTAPI *PFN_LdrUnlockLoaderLock)(ULONG flags, ULONG_PTR cookie);
+
 static BOOL UnlinkModuleFromPEB(HMODULE hModule)
 {
+  HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  PFN_LdrLockLoaderLock lockLoader =
+      ntdll ? (PFN_LdrLockLoaderLock)GetProcAddress(ntdll, "LdrLockLoaderLock") : NULL;
+  PFN_LdrUnlockLoaderLock unlockLoader =
+      ntdll ? (PFN_LdrUnlockLoaderLock)GetProcAddress(ntdll, "LdrUnlockLoaderLock") : NULL;
+  if(lockLoader == NULL || unlockLoader == NULL)
+    return FALSE;
+
+  ULONG disposition = 0;
+  ULONG_PTR cookie = 0;
+  if(lockLoader(0, &disposition, &cookie) < 0)
+    return FALSE;
+
+  BOOL unlinked = FALSE;
+  LIST_ENTRY *unlinkEntries[4] = {};
+  LIST_ENTRY unlinkSnapshots[4] = {};
+  SIZE_T unlinkCount = 0;
   __try
   {
     // Get PEB via TEB (x64: GS:[0x60], x86: FS:[0x30])
@@ -88,83 +109,123 @@ static BOOL UnlinkModuleFromPEB(HMODULE hModule)
     PPEB pPEB = (PPEB)__readfsdword(0x30);
 #endif
 
-    if(!pPEB || !pPEB->Ldr)
-      return FALSE;
-
-    // Cast to our full definition that includes InLoadOrderModuleList
-    PPEB_LDR_DATA_FULL pLdr = (PPEB_LDR_DATA_FULL)pPEB->Ldr;
-
-    // Walk InLoadOrderModuleList to find our entry
-    PLIST_ENTRY head = &pLdr->InLoadOrderModuleList;
-    PLIST_ENTRY current = head->Flink;
-
-    while(current != head)
+    if(pPEB && pPEB->Ldr)
     {
-      PLDR_DATA_TABLE_ENTRY_FULL entry =
-          CONTAINING_RECORD(current, LDR_DATA_TABLE_ENTRY_FULL, InLoadOrderLinks);
+      // Cast to our full definition that includes InLoadOrderModuleList
+      PPEB_LDR_DATA_FULL pLdr = (PPEB_LDR_DATA_FULL)pPEB->Ldr;
 
-      if(entry->DllBase == (PVOID)hModule)
+      // Walk InLoadOrderModuleList to find our entry
+      PLIST_ENTRY head = &pLdr->InLoadOrderModuleList;
+      PLIST_ENTRY current = head->Flink;
+
+      while(current != head)
       {
-        // Unlink from all three PEB lists
-        SafeUnlinkEntry(&entry->InLoadOrderLinks);
-        SafeUnlinkEntry(&entry->InMemoryOrderLinks);
-        SafeUnlinkEntry(&entry->InInitializationOrderLinks);
+        PLDR_DATA_TABLE_ENTRY_FULL entry =
+            CONTAINING_RECORD(current, LDR_DATA_TABLE_ENTRY_FULL, InLoadOrderLinks);
+        current = current->Flink;
 
-        // Unlink from hash table (Windows 10/11)
-        // The HashLinks field is used by LdrpHashTable for fast lookup
-        SafeUnlinkEntry(&entry->HashLinks);
-
-        // Zero out the DLL name strings to prevent string scanning
-        if(entry->BaseDllName.Buffer)
+        if(entry->DllBase == (PVOID)hModule)
         {
-          DWORD oldProtect;
-          if(VirtualProtect(entry->BaseDllName.Buffer,
-                            entry->BaseDllName.MaximumLength,
-                            PAGE_READWRITE, &oldProtect))
-          {
-            SecureZeroMemory(entry->BaseDllName.Buffer, entry->BaseDllName.MaximumLength);
-            VirtualProtect(entry->BaseDllName.Buffer,
-                           entry->BaseDllName.MaximumLength,
-                           oldProtect, &oldProtect);
-          }
-          entry->BaseDllName.Length = 0;
-        }
+          unlinkEntries[0] = &entry->InLoadOrderLinks;
+          unlinkEntries[1] = &entry->InMemoryOrderLinks;
+          unlinkEntries[2] = &entry->InInitializationOrderLinks;
+          unlinkEntries[3] = &entry->HashLinks;
 
-        if(entry->FullDllName.Buffer)
-        {
-          DWORD oldProtect;
-          if(VirtualProtect(entry->FullDllName.Buffer,
-                            entry->FullDllName.MaximumLength,
-                            PAGE_READWRITE, &oldProtect))
+          // Validate and snapshot every link before the first irreversible write. The loader lock
+          // keeps the lists stable; snapshots let the exception path roll back a partial commit.
+          BOOL validLinks = TRUE;
+          for(SIZE_T i = 0; i < ARRAY_COUNT(unlinkEntries); i++)
           {
-            SecureZeroMemory(entry->FullDllName.Buffer, entry->FullDllName.MaximumLength);
-            VirtualProtect(entry->FullDllName.Buffer,
-                           entry->FullDllName.MaximumLength,
-                           oldProtect, &oldProtect);
+            LIST_ENTRY *link = unlinkEntries[i];
+            if(link->Flink == NULL || link->Blink == NULL || link->Flink->Blink != link ||
+               link->Blink->Flink != link)
+            {
+              validLinks = FALSE;
+              break;
+            }
+            unlinkSnapshots[i] = *link;
           }
-          entry->FullDllName.Length = 0;
-        }
 
-        return TRUE;
+          if(!validLinks)
+            break;
+
+          for(SIZE_T i = 0; i < ARRAY_COUNT(unlinkEntries); i++)
+          {
+            // Include the current entry before modifying it so even a mid-write exception restores
+            // this list along with every previously removed list.
+            unlinkCount = i + 1;
+            SafeUnlinkEntry(unlinkEntries[i]);
+          }
+          unlinked = TRUE;
+
+          // Zero out the DLL name strings to prevent string scanning.
+          if(entry->BaseDllName.Buffer)
+          {
+            DWORD oldProtect = 0;
+            if(VirtualProtect(entry->BaseDllName.Buffer, entry->BaseDllName.MaximumLength,
+                              PAGE_READWRITE, &oldProtect))
+            {
+              SecureZeroMemory(entry->BaseDllName.Buffer, entry->BaseDllName.MaximumLength);
+              VirtualProtect(entry->BaseDllName.Buffer, entry->BaseDllName.MaximumLength,
+                             oldProtect, &oldProtect);
+            }
+            entry->BaseDllName.Length = 0;
+          }
+
+          if(entry->FullDllName.Buffer)
+          {
+            DWORD oldProtect = 0;
+            if(VirtualProtect(entry->FullDllName.Buffer, entry->FullDllName.MaximumLength,
+                              PAGE_READWRITE, &oldProtect))
+            {
+              SecureZeroMemory(entry->FullDllName.Buffer, entry->FullDllName.MaximumLength);
+              VirtualProtect(entry->FullDllName.Buffer, entry->FullDllName.MaximumLength,
+                             oldProtect, &oldProtect);
+            }
+            entry->FullDllName.Length = 0;
+          }
+          break;
+        }
       }
-
-      current = current->Flink;
     }
   }
   __except(EXCEPTION_EXECUTE_HANDLER)
   {
-    // Silently handle any access violations
+    if(!unlinked && unlinkCount > 0)
+    {
+      __try
+      {
+        while(unlinkCount > 0)
+        {
+          SIZE_T i = --unlinkCount;
+          LIST_ENTRY *link = unlinkEntries[i];
+          const LIST_ENTRY snapshot = unlinkSnapshots[i];
+          link->Flink = snapshot.Flink;
+          link->Blink = snapshot.Blink;
+          snapshot.Flink->Blink = link;
+          snapshot.Blink->Flink = link;
+        }
+      }
+      __except(EXCEPTION_EXECUTE_HANDLER)
+      {
+        // The loader metadata was already corrupt if restoring validated pointers also faults.
+      }
+    }
   }
 
-  return FALSE;
+  unlockLoader(0, cookie);
+  return unlinked;
 }
 
 // ============================================================================
 // Combined stealth: PE wipe + PEB unlink
 // ============================================================================
-static void ApplyModuleStealth(HMODULE hModule)
+static BOOL PrepareModuleSignatureWipe(HMODULE hModule, PIMAGE_NT_HEADERS *ntHeaders,
+                                       SIZE_T *wipeSize, DWORD *oldProtect)
 {
-  // Step 1: Wipe only the identifying signatures in the PE header.
+  BOOL prepared = FALSE;
+
+  // Wipe only the identifying signatures in the PE header.
   // We intentionally preserve the DataDirectory (especially the resource
   // directory entry) so that FindResource / GetDynamicEmbeddedResource
   // keeps working after stealth is applied.
@@ -178,22 +239,47 @@ static void ApplyModuleStealth(HMODULE hModule)
       PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)((BYTE *)hModule + pDos->e_lfanew);
       if(pNt->Signature == IMAGE_NT_SIGNATURE)
       {
-        DWORD oldProtect = 0;
-        if(VirtualProtect(hModule, pDos->e_lfanew + sizeof(DWORD), PAGE_READWRITE, &oldProtect))
-        {
-          // Zero DOS stub up to (but not including) the NT headers,
-          // then wipe just the NT signature DWORD.
-          SecureZeroMemory(hModule, pDos->e_lfanew);
-          pNt->Signature = 0;
-          VirtualProtect(hModule, pDos->e_lfanew + sizeof(DWORD), oldProtect, &oldProtect);
-        }
+        *ntHeaders = pNt;
+        *wipeSize = pDos->e_lfanew + sizeof(DWORD);
+        prepared = VirtualProtect(hModule, *wipeSize, PAGE_READWRITE, oldProtect);
       }
     }
   }
   __except(EXCEPTION_EXECUTE_HANDLER) {}
 
-  // Step 2: Unlink from PEB loader data tables
-  UnlinkModuleFromPEB(hModule);
+  return prepared;
+}
+
+static BOOL ApplyModuleStealth(HMODULE hModule)
+{
+  if(hModule == NULL)
+    return FALSE;
+
+  // Complete every operation that can fail before unlinking the loader entry. After VirtualProtect
+  // succeeds the signature wipe is only writes to validated, writable memory, so HooksFailed can
+  // never leave an attached process in a half-hidden state.
+  PIMAGE_NT_HEADERS ntHeaders = NULL;
+  SIZE_T wipeSize = 0;
+  DWORD oldProtect = 0;
+  if(!PrepareModuleSignatureWipe(hModule, &ntHeaders, &wipeSize, &oldProtect))
+    return FALSE;
+
+  if(!UnlinkModuleFromPEB(hModule))
+  {
+    DWORD ignored = 0;
+    VirtualProtect(hModule, wipeSize, oldProtect, &ignored);
+    return FALSE;
+  }
+
+  SecureZeroMemory(hModule, wipeSize - sizeof(DWORD));
+  ntHeaders->Signature = 0;
+
+  // Stealth is already committed at this point. Restoring the original protection is best-effort;
+  // it must not turn a successfully hidden module into a reported failure on attach.
+  DWORD ignored = 0;
+  VirtualProtect(hModule, wipeSize, oldProtect, &ignored);
+  FlushInstructionCache(GetCurrentProcess(), hModule, wipeSize);
+  return TRUE;
 }
 
 #pragma warning(pop)

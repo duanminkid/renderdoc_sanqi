@@ -138,6 +138,12 @@ struct FunctionHook
 
 struct LibraryHook;
 
+enum class LibraryHookRegistration
+{
+  All,
+  D3D11AndDXGI,
+};
+
 // this singleton allows you to compile in code that defines a hook for a given library
 // (and it will be registered). Then when the renderdoc library is initialised in the target
 // program RegisterHooks() will be called to set up the hooks.
@@ -145,7 +151,7 @@ class LibraryHooks
 {
 public:
   // generic, implemented in hooks.cpp to iterate over all registered libraries
-  static void RegisterHooks();
+  static void RegisterHooks(LibraryHookRegistration registration = LibraryHookRegistration::All);
   static void OptionsUpdated();
   static void RemoveHookCallbacks();
 
@@ -173,6 +179,9 @@ public:
   // onward function pointer
   static void RegisterFunctionHook(const char *libraryName, const FunctionHook &hook);
 
+  // Returns true when the current registration pass patched at least one import entry.
+  static bool HooksApplied();
+
   // detect if an identifier is present in the current process - used as a marker to indicate
   // replay-type programs.
   static bool Detect(const char *identifier);
@@ -185,13 +194,21 @@ private:
 // defines the interface that a library hooking class will implement.
 struct LibraryHook
 {
-  LibraryHook();
+  enum class Type
+  {
+    Other,
+    D3D11,
+    DXGI,
+  };
+
+  explicit LibraryHook(Type type = Type::Other);
   virtual void RegisterHooks() = 0;
   virtual void OptionsUpdated() {}
   virtual void RemoveHooks() {}
 private:
   friend class LibraryHooks;
 
+  Type m_Type;
   static rdcarray<LibraryHook *> m_Libraries;
 };
 

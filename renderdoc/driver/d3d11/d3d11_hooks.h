@@ -49,3 +49,5 @@ HRESULT CreateD3D11_Internal(RealD3D11CreateFunction real, __in_opt IDXGIAdapter
 struct ID3DDevice;
 
 ID3DDevice *GetD3D11DeviceIfAlloc(IUnknown *dev);
+
+bool D3D11HooksRegistered();

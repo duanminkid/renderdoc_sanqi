@@ -25,7 +25,15 @@
 
 #include "core/core.h"
 #include "hooks/hooks.h"
+#include "dxgi_hooks.h"
 #include "dxgi_wrapped.h"
+
+static volatile LONG SQC_DXGIHooksRegistered = 0;
+
+bool DXGIHooksRegistered()
+{
+  return InterlockedCompareExchange(&SQC_DXGIHooksRegistered, 0, 0) != 0;
+}
 
 static void SQCChainLog(const char *msg)
 {
@@ -44,6 +52,57 @@ static void SQCChainLog(const char *msg)
   WriteFile(h, buf, lstrlenA(buf), &written, NULL);
   CloseHandle(h);
 }
+
+static bool SQCUseYuanShenInlineHooks()
+{
+  char direct[16] = {};
+  char inlineHooks[16] = {};
+  if(GetEnvironmentVariableA("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD", direct, sizeof(direct)) == 0 ||
+     GetEnvironmentVariableA("SQC_YUANSHEN_INLINE_HOOKS", inlineHooks, sizeof(inlineHooks)) == 0)
+    return false;
+
+  const auto enabled = [](const char *value) {
+    return _stricmp(value, "0") != 0 && _stricmp(value, "false") != 0 &&
+           _stricmp(value, "off") != 0;
+  };
+  if(!enabled(direct) || !enabled(inlineHooks))
+    return false;
+
+  wchar_t processPath[MAX_PATH] = {};
+  if(GetModuleFileNameW(NULL, processPath, MAX_PATH) == 0)
+    return false;
+
+  const wchar_t *baseName = processPath;
+  for(const wchar_t *character = processPath; *character != 0; ++character)
+  {
+    if(*character == L'\\' || *character == L'/')
+      baseName = character + 1;
+  }
+
+  return _wcsicmp(baseName, L"YuanShen.exe") == 0;
+}
+
+static thread_local bool s_SQCInlineFactoryCall = false;
+
+struct SQCScopedInlineFactoryCall
+{
+  explicit SQCScopedInlineFactoryCall(bool enabled)
+      : m_Enabled(enabled), m_Previous(s_SQCInlineFactoryCall)
+  {
+    if(m_Enabled)
+      s_SQCInlineFactoryCall = true;
+  }
+
+  ~SQCScopedInlineFactoryCall()
+  {
+    if(m_Enabled)
+      s_SQCInlineFactoryCall = m_Previous;
+  }
+
+private:
+  bool m_Enabled;
+  bool m_Previous;
+};
 
 template <typename FuncType>
 static FuncType SQCResolveRealDXGIExport(const char *function, void *hook)
@@ -285,8 +344,11 @@ public:
 class DXGIHook : LibraryHook
 {
 public:
+  DXGIHook() : LibraryHook(LibraryHook::Type::DXGI) {}
+
   void RegisterHooks()
   {
+    InterlockedExchange(&SQC_DXGIHooksRegistered, 0);
     SQCChainLog("DXGIHook::RegisterHooks");
     RDCLOG("Registering DXGI hooks");
 
@@ -297,6 +359,7 @@ public:
     CreateDXGIFactory2.Register("dxgi.dll", "CreateDXGIFactory2", CreateDXGIFactory2_hook);
     GetDebugInterface.Register("dxgi.dll", "DXGIGetDebugInterface", DXGIGetDebugInterface_hook);
     GetDebugInterface1.Register("dxgi.dll", "DXGIGetDebugInterface1", DXGIGetDebugInterface1_hook);
+    InterlockedExchange(&SQC_DXGIHooksRegistered, 1);
   }
 
 private:
@@ -315,9 +378,20 @@ private:
   {
     static thread_local bool inFactory = false;
     static thread_local bool inGuardFallback = false;
+    const bool inlineHooks = SQCUseYuanShenInlineHooks();
+    PFN_CREATE_DXGI_FACTORY saved = dxgihooks.CreateDXGIFactory();
     SQCChainLog("CreateDXGIFactory_hook hit");
     if(ppFactory)
       *ppFactory = NULL;
+
+    if(inlineHooks && s_SQCInlineFactoryCall)
+    {
+      if(saved == NULL || saved == (PFN_CREATE_DXGI_FACTORY)&CreateDXGIFactory_hook)
+        return E_FAIL;
+
+      ScopedSuppressHooking suppress;
+      return saved(riid, ppFactory);
+    }
 
     if(inFactory)
     {
@@ -328,8 +402,10 @@ private:
       }
 
       SQCChainLog("CreateDXGIFactory recursion guard");
-      PFN_CREATE_DXGI_FACTORY real = SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY>(
-          "CreateDXGIFactory", (void *)&CreateDXGIFactory_hook);
+      PFN_CREATE_DXGI_FACTORY real =
+          inlineHooks ? saved
+                      : SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY>(
+                            "CreateDXGIFactory", (void *)&CreateDXGIFactory_hook);
       if(real == NULL)
         return E_FAIL;
 
@@ -340,7 +416,6 @@ private:
       return ret;
     }
 
-    PFN_CREATE_DXGI_FACTORY saved = dxgihooks.CreateDXGIFactory();
     {
       char msg[256] = {};
       wsprintfA(msg, "CreateDXGIFactory saved=%p hook=%p", saved, &CreateDXGIFactory_hook);
@@ -349,6 +424,12 @@ private:
 
     if(saved == (PFN_CREATE_DXGI_FACTORY)&CreateDXGIFactory_hook)
     {
+      if(inlineHooks)
+      {
+        SQCChainLog("CreateDXGIFactory inline trampoline points to hook");
+        return E_FAIL;
+      }
+
       SQCChainLog("CreateDXGIFactory saved points to hook, resolving export");
       saved = SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY>("CreateDXGIFactory",
                                                                 (void *)&CreateDXGIFactory_hook);
@@ -366,6 +447,7 @@ private:
     {
       ScopedSuppressHooking suppress;
       inFactory = true;
+      SQCScopedInlineFactoryCall inlineCall(inlineHooks);
       ret = saved(riid, ppFactory);
       inFactory = false;
     }
@@ -388,9 +470,20 @@ private:
   {
     static thread_local bool inFactory = false;
     static thread_local bool inGuardFallback = false;
+    const bool inlineHooks = SQCUseYuanShenInlineHooks();
+    PFN_CREATE_DXGI_FACTORY saved = dxgihooks.CreateDXGIFactory1();
     SQCChainLog("CreateDXGIFactory1_hook hit");
     if(ppFactory)
       *ppFactory = NULL;
+
+    if(inlineHooks && s_SQCInlineFactoryCall)
+    {
+      if(saved == NULL || saved == (PFN_CREATE_DXGI_FACTORY)&CreateDXGIFactory1_hook)
+        return E_FAIL;
+
+      ScopedSuppressHooking suppress;
+      return saved(riid, ppFactory);
+    }
 
     if(inFactory)
     {
@@ -401,8 +494,10 @@ private:
       }
 
       SQCChainLog("CreateDXGIFactory1 recursion guard");
-      PFN_CREATE_DXGI_FACTORY real = SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY>(
-          "CreateDXGIFactory1", (void *)&CreateDXGIFactory1_hook);
+      PFN_CREATE_DXGI_FACTORY real =
+          inlineHooks ? saved
+                      : SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY>(
+                            "CreateDXGIFactory1", (void *)&CreateDXGIFactory1_hook);
       if(real == NULL)
         return E_FAIL;
 
@@ -413,7 +508,6 @@ private:
       return ret;
     }
 
-    PFN_CREATE_DXGI_FACTORY saved = dxgihooks.CreateDXGIFactory1();
     {
       char msg[256] = {};
       wsprintfA(msg, "CreateDXGIFactory1 saved=%p hook=%p", saved, &CreateDXGIFactory1_hook);
@@ -422,6 +516,12 @@ private:
 
     if(saved == (PFN_CREATE_DXGI_FACTORY)&CreateDXGIFactory1_hook)
     {
+      if(inlineHooks)
+      {
+        SQCChainLog("CreateDXGIFactory1 inline trampoline points to hook");
+        return E_FAIL;
+      }
+
       SQCChainLog("CreateDXGIFactory1 saved points to hook, resolving export");
       saved = SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY>("CreateDXGIFactory1",
                                                                 (void *)&CreateDXGIFactory1_hook);
@@ -439,6 +539,7 @@ private:
     {
       ScopedSuppressHooking suppress;
       inFactory = true;
+      SQCScopedInlineFactoryCall inlineCall(inlineHooks);
       ret = saved(riid, ppFactory);
       inFactory = false;
     }
@@ -461,9 +562,20 @@ private:
   {
     static thread_local bool inFactory = false;
     static thread_local bool inGuardFallback = false;
+    const bool inlineHooks = SQCUseYuanShenInlineHooks();
+    PFN_CREATE_DXGI_FACTORY2 saved = dxgihooks.CreateDXGIFactory2();
     SQCChainLog("CreateDXGIFactory2_hook hit");
     if(ppFactory)
       *ppFactory = NULL;
+
+    if(inlineHooks && s_SQCInlineFactoryCall)
+    {
+      if(saved == NULL || saved == (PFN_CREATE_DXGI_FACTORY2)&CreateDXGIFactory2_hook)
+        return E_FAIL;
+
+      ScopedSuppressHooking suppress;
+      return saved(Flags, riid, ppFactory);
+    }
 
     if(inFactory)
     {
@@ -474,8 +586,10 @@ private:
       }
 
       SQCChainLog("CreateDXGIFactory2 recursion guard");
-      PFN_CREATE_DXGI_FACTORY2 real = SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY2>(
-          "CreateDXGIFactory2", (void *)&CreateDXGIFactory2_hook);
+      PFN_CREATE_DXGI_FACTORY2 real =
+          inlineHooks ? saved
+                      : SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY2>(
+                            "CreateDXGIFactory2", (void *)&CreateDXGIFactory2_hook);
       if(real == NULL)
         return E_FAIL;
 
@@ -486,7 +600,6 @@ private:
       return ret;
     }
 
-    PFN_CREATE_DXGI_FACTORY2 saved = dxgihooks.CreateDXGIFactory2();
     {
       char msg[256] = {};
       wsprintfA(msg, "CreateDXGIFactory2 saved=%p hook=%p flags=0x%X", saved,
@@ -496,6 +609,12 @@ private:
 
     if(saved == (PFN_CREATE_DXGI_FACTORY2)&CreateDXGIFactory2_hook)
     {
+      if(inlineHooks)
+      {
+        SQCChainLog("CreateDXGIFactory2 inline trampoline points to hook");
+        return E_FAIL;
+      }
+
       SQCChainLog("CreateDXGIFactory2 saved points to hook, resolving export");
       saved = SQCResolveRealDXGIExport<PFN_CREATE_DXGI_FACTORY2>("CreateDXGIFactory2",
                                                                  (void *)&CreateDXGIFactory2_hook);
@@ -513,6 +632,7 @@ private:
     {
       ScopedSuppressHooking suppress;
       inFactory = true;
+      SQCScopedInlineFactoryCall inlineCall(inlineHooks);
       ret = saved(Flags, riid, ppFactory);
       inFactory = false;
     }
@@ -595,3 +715,24 @@ private:
 };
 
 DXGIHook DXGIHook::dxgihooks;
+
+extern "C" __declspec(dllexport) HRESULT WINAPI INTERNAL_DXGIWrapFactory(REFIID riid,
+                                                                         void **ppFactory)
+{
+  SQCChainLog("INTERNAL_DXGIWrapFactory bridge hit");
+
+  if(ppFactory == NULL || *ppFactory == NULL)
+  {
+    SQCChainLog("INTERNAL_DXGIWrapFactory missing factory");
+    return E_INVALIDARG;
+  }
+
+  if(RefCountDXGIObject::HandleWrap("INTERNAL_DXGIWrapFactory", riid, ppFactory))
+  {
+    SQCChainLog("INTERNAL_DXGIWrapFactory wrapped");
+    return S_OK;
+  }
+
+  SQCChainLog("INTERNAL_DXGIWrapFactory passthrough");
+  return S_FALSE;
+}

@@ -252,7 +252,7 @@ private:
   QTimer m_MessageTick;
   QSemaphore m_RemoteProbeSemaphore;
   QSemaphore m_RemoteInitialProbeReady;
-  LambdaThread *m_RemoteProbe;
+  LambdaThread *m_RemoteProbe = NULL;
 
   // m_ProbeRemoteHosts is covered by a lock. On the UI thread we copy it from the config regularly,
   // then apply any updates back.

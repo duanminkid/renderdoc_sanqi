@@ -546,9 +546,7 @@ HRESULT WrappedIDXGISwapChain4::GetDevice(
   return ret;
 }
 
-HRESULT WrappedIDXGISwapChain4::Present(
-    /* [in] */ UINT SyncInterval,
-    /* [in] */ UINT Flags)
+UINT WrappedIDXGISwapChain4::SidecarPresent(UINT SyncInterval, UINT Flags)
 {
   if(!SanQiCapture::Inst().GetCaptureOptions().allowVSync)
   {
@@ -561,24 +559,20 @@ HRESULT WrappedIDXGISwapChain4::Present(
     m_pDevice->Present(this, SyncInterval, Flags);
   }
 
-  return m_pReal->Present(SyncInterval, Flags);
+  return SyncInterval;
+}
+
+HRESULT WrappedIDXGISwapChain4::Present(
+    /* [in] */ UINT SyncInterval,
+    /* [in] */ UINT Flags)
+{
+  return m_pReal->Present(SidecarPresent(SyncInterval, Flags), Flags);
 }
 
 HRESULT WrappedIDXGISwapChain4::Present1(UINT SyncInterval, UINT Flags,
                                          const DXGI_PRESENT_PARAMETERS *pPresentParameters)
 {
-  if(!SanQiCapture::Inst().GetCaptureOptions().allowVSync)
-  {
-    SyncInterval = 0;
-  }
-
-  if((Flags & DXGI_PRESENT_TEST) == 0)
-  {
-    TickLastPresentedBuffer();
-    m_pDevice->Present(this, SyncInterval, Flags);
-  }
-
-  return m_pReal1->Present1(SyncInterval, Flags, pPresentParameters);
+  return m_pReal1->Present1(SidecarPresent(SyncInterval, Flags), Flags, pPresentParameters);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetRestrictToOutput(IDXGIOutput **ppRestrictToOutput)

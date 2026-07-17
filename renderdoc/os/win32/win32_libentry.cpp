@@ -28,8 +28,14 @@
 #include <windows.h>
 #include "common/common.h"
 #include "core/core.h"
+#include "driver/d3d11/d3d11_hooks.h"
+#include "driver/dxgi/dxgi_hooks.h"
 #include "hooks/hooks.h"
+#include "os/os_specific.h"
 #include "strings/string_utils.h"
+#include "win32_stealth.h"
+
+static volatile LONG SQCDeferredHooksStarted = 0;
 
 static void SQCChainLog(const char *msg)
 {
@@ -79,9 +85,66 @@ static bool SQCEnvEnabled(const char *name)
          _stricmp(value, "off") != 0;
 }
 
+static rdcstr SQCGetEnvVariableUTF8(const wchar_t *name)
+{
+  SetLastError(ERROR_SUCCESS);
+  DWORD len = GetEnvironmentVariableW(name, NULL, 0);
+  if(len == 0)
+    return rdcstr();
+
+  rdcarray<wchar_t> value;
+  value.resize(len);
+  DWORD copied = GetEnvironmentVariableW(name, value.data(), len);
+  if(copied == 0 || copied >= len)
+    return rdcstr();
+
+  return StringFormat::Wide2UTF8(value.data());
+}
+
+static bool SQCValidCaptureOptions(const rdcstr &encoded)
+{
+  if(encoded.size() != sizeof(CaptureOptions) * 2)
+    return false;
+
+  for(char c : encoded)
+    if(c < 'a' || c > 'p')
+      return false;
+
+  return true;
+}
+
 static bool SQCIsToolProcess(const rdcstr &processName)
 {
   return processName.contains("injecttool.exe") || SQCEnvEnabled("SQC_TOOL_ENV");
+}
+
+static bool SQCProcessNameMatches(const wchar_t *path, const wchar_t *name)
+{
+  const wchar_t *base = wcsrchr(path, L'\\');
+  base = base ? base + 1 : path;
+  return _wcsicmp(base, name) == 0;
+}
+
+static void SQCWriteFixedTargetIdent(uint32_t ident)
+{
+  char path[MAX_PATH] = {};
+  GetTempPathA(MAX_PATH, path);
+  strcat_s(path, MAX_PATH, "sqc_target_ident_");
+
+  char pid[32] = {};
+  wsprintfA(pid, "%u.txt", GetCurrentProcessId());
+  strcat_s(path, MAX_PATH, pid);
+
+  HANDLE h = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                         CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if(h == INVALID_HANDLE_VALUE)
+    return;
+
+  char buf[64] = {};
+  wsprintfA(buf, "%u", ident);
+  DWORD written = 0;
+  WriteFile(h, buf, (DWORD)lstrlenA(buf), &written, NULL);
+  CloseHandle(h);
 }
 
 static BOOL add_hooks()
@@ -93,6 +156,52 @@ static BOOL add_hooks()
   char msg[256] = {};
   wsprintfA(msg, "add_hooks process=%s", f.c_str());
   SQCChainLog(msg);
+
+  const bool yuanShenDirectSystemLoad =
+      f == "yuanshen.exe" && SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD");
+
+  if(yuanShenDirectSystemLoad)
+  {
+    SQCChainLog("add_hooks yuanshen direct system_load mode");
+
+    // YuanShen only needs the D3D11/DXGI capture path. Avoid the unrelated system/network hooks
+    // that are incompatible with the observed startup path.
+    SetEnvironmentVariableA("SQC_D3D11_LIGHT_HOOKS", "1");
+    SetEnvironmentVariableA("SQC_YUANSHEN_INLINE_HOOKS", "1");
+    SQCChainLog("add_hooks yuanshen D3D11/DXGI hook profile enabled");
+
+    const rdcstr encodedOptions = SQCGetEnvVariableUTF8(L"SQC_DIRECT_CAPTURE_OPTS");
+    if(!SQCValidCaptureOptions(encodedOptions))
+    {
+      SQCChainLog("add_hooks direct capture options missing or malformed");
+      return FALSE;
+    }
+
+    CaptureOptions options;
+    options.DecodeFromString(encodedOptions);
+    SanQiCapture::Inst().SetCaptureOptions(options);
+
+    const rdcstr captureFile = SQCGetEnvVariableUTF8(L"SQC_DIRECT_CAPTURE_FILE");
+    if(!captureFile.empty())
+      SanQiCapture::Inst().SetCaptureFileTemplate(captureFile);
+
+    SQCChainLog("add_hooks applied direct capture config");
+  }
+
+  if(f == "yuanshen.exe" && !yuanShenDirectSystemLoad &&
+     !SQCEnvEnabled("SQC_DISABLE_YUANSHEN_MINIMAL_LOAD"))
+  {
+    SQCWriteFixedTargetIdent(RenderDoc_FirstTargetControlPort);
+    SQCChainLog("add_hooks yuanshen minimal-load diagnostic, skipping capture initialise");
+    return TRUE;
+  }
+
+  if(f == "yuanshen.exe" && !yuanShenDirectSystemLoad &&
+     !SQCEnvEnabled("SQC_DISABLE_YUANSHEN_CONTROL_ONLY"))
+  {
+    SetEnvironmentVariableA("SQC_TARGET_CONTROL_ONLY", "1");
+    SQCChainLog("add_hooks yuanshen target-control-only diagnostic enabled");
+  }
 
   if(SQCIsToolProcess(f))
   {
@@ -132,13 +241,147 @@ static BOOL add_hooks()
   SQCChainLog("after SanQiCapture::Initialise");
   SQCWriteTargetIdent();
 
+  if(SQCEnvEnabled("SQC_TARGET_CONTROL_ONLY"))
+  {
+    SQCChainLog("add_hooks target-control-only, skipping LibraryHooks::RegisterHooks");
+    return TRUE;
+  }
+
   RDCLOG("Loading into %ls", curFile);
 
   SQCChainLog("before LibraryHooks::RegisterHooks");
-  LibraryHooks::RegisterHooks();
+  LibraryHooks::RegisterHooks(yuanShenDirectSystemLoad
+                                  ? LibraryHookRegistration::D3D11AndDXGI
+                                  : LibraryHookRegistration::All);
   SQCChainLog("after LibraryHooks::RegisterHooks");
 
+  if(yuanShenDirectSystemLoad &&
+     (!D3D11HooksRegistered() || !DXGIHooksRegistered() || !LibraryHooks::HooksApplied()))
+  {
+    SQCChainLog("add_hooks D3D11/DXGI registration failed");
+    return FALSE;
+  }
+
   return TRUE;
+}
+
+static void SQCSignalHookStatus(bool succeeded)
+{
+  wchar_t eventName[64] = {};
+  swprintf_s(eventName, succeeded ? L"Local\\SQC_HooksReady_%u"
+                                  : L"Local\\SQC_HooksFailed_%u",
+             GetCurrentProcessId());
+  HANDLE event = OpenEventW(EVENT_MODIFY_STATE, FALSE, eventName);
+  if(event != NULL)
+  {
+    SetEvent(event);
+    CloseHandle(event);
+    SQCChainLog(succeeded ? "add_hooks signalled hooks ready"
+                          : "add_hooks signalled hooks failed");
+  }
+  else
+  {
+    SQCChainLog(succeeded ? "add_hooks hooks ready event missing"
+                          : "add_hooks hooks failed event missing");
+  }
+}
+
+static DWORD WINAPI SQCDeferredAddHooksThread(void *)
+{
+  SQCChainLog("deferred add_hooks thread begin");
+  wchar_t eventName[64] = {};
+  swprintf_s(eventName, L"Local\\SQC_InjectComplete_%u", GetCurrentProcessId());
+  HANDLE injectionCompleteEvent = OpenEventW(SYNCHRONIZE, FALSE, eventName);
+  if(injectionCompleteEvent != NULL)
+  {
+    DWORD waitResult = WaitForSingleObject(injectionCompleteEvent, 15000);
+    CloseHandle(injectionCompleteEvent);
+    if(waitResult != WAIT_OBJECT_0)
+    {
+      SQCChainLog(waitResult == WAIT_TIMEOUT ? "deferred add_hooks injection wait timed out"
+                                             : "deferred add_hooks injection wait failed");
+      SQCSignalHookStatus(false);
+      return 1;
+    }
+    SQCChainLog("deferred add_hooks injection complete");
+  }
+  else
+  {
+    // Both launch and attach coordinators create this event before loading the DLL. Continuing
+    // without it can hide the module while the final remote configuration call is still running.
+    SQCChainLog("deferred add_hooks injection event missing");
+    SQCSignalHookStatus(false);
+    return 1;
+  }
+
+  // The launch coordinator signals only after InjectDLL has returned, so the LoadLibrary thread
+  // has left DllMain. Register before the primary thread resumes to avoid missing device creation.
+  BOOL ret = add_hooks();
+
+  if(ret == TRUE && SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD"))
+  {
+    // Remote capture configuration and hook startup are complete at this point. Hiding earlier
+    // makes FindRemoteDLL/InjectFunctionCall fail; leaving the module visible makes YuanShen enter
+    // the observed ntdll exception loop. CacheSelfModuleHandle() ran in DllMain, so our own module
+    // and embedded resources remain accessible after the PEB entry and signatures are removed.
+    if(ApplyModuleStealth(GetCachedSelfModuleHandle()))
+    {
+      SQCChainLog("deferred add_hooks applied module stealth");
+    }
+    else
+    {
+      SQCChainLog("deferred add_hooks module stealth failed");
+      ret = FALSE;
+    }
+  }
+
+  SQCSignalHookStatus(ret == TRUE);
+
+  SQCChainLog(ret ? "deferred add_hooks thread end ok" : "deferred add_hooks thread end failed");
+  return ret ? 0 : 1;
+}
+
+static BOOL SQCStartDeferredAddHooks()
+{
+  if(InterlockedCompareExchange(&SQCDeferredHooksStarted, 1, 0) != 0)
+  {
+    SQCChainLog("deferred add_hooks already started");
+    return TRUE;
+  }
+
+  HANDLE thread = CreateThread(NULL, 0, SQCDeferredAddHooksThread, NULL, 0, NULL);
+  if(thread == NULL)
+  {
+    InterlockedExchange(&SQCDeferredHooksStarted, 0);
+    SQCChainLog("deferred add_hooks thread create failed");
+    SQCSignalHookStatus(false);
+    return FALSE;
+  }
+
+  CloseHandle(thread);
+  return TRUE;
+}
+
+extern "C" __declspec(dllexport) DWORD WINAPI
+INTERNAL_StartYuanShenDirectHooks(const char *encodedOptions)
+{
+  wchar_t processPath[MAX_PATH] = {};
+  GetModuleFileNameW(NULL, processPath, MAX_PATH);
+  if(!SQCProcessNameMatches(processPath, L"YuanShen.exe") || encodedOptions == NULL ||
+     !SQCValidCaptureOptions(encodedOptions))
+  {
+    SQCChainLog("remote direct hook start rejected invalid process or options");
+    SQCSignalHookStatus(false);
+    return 0;
+  }
+
+  SetEnvironmentVariableA("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD", "1");
+  SetEnvironmentVariableA("SQC_D3D11_LIGHT_HOOKS", "1");
+  SetEnvironmentVariableA("SQC_YUANSHEN_INLINE_HOOKS", "1");
+  SetEnvironmentVariableA("SQC_DIRECT_CAPTURE_OPTS", encodedOptions);
+  SQCChainLog("remote direct hook configuration applied");
+
+  return SQCStartDeferredAddHooks() ? 1 : 0;
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
@@ -146,8 +389,37 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
   if(ul_reason_for_call == DLL_PROCESS_ATTACH)
   {
     SQCChainLog("DllMain DLL_PROCESS_ATTACH");
+    wchar_t curFile[512];
+    GetModuleFileNameW(NULL, curFile, 512);
     CacheSelfModuleHandle();
     SQCChainLog("after CacheSelfModuleHandle");
+
+    if(SQCProcessNameMatches(curFile, L"YuanShen.exe") &&
+       !SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD") &&
+       !SQCEnvEnabled("SQC_DISABLE_YUANSHEN_DLLMAIN_EARLY_OUT"))
+    {
+      SQCWriteFixedTargetIdent(RenderDoc_FirstTargetControlPort);
+      SQCChainLog("DllMain yuanshen early-out diagnostic after CacheSelfModuleHandle");
+      SetLastError(0);
+      SQCChainLog("DllMain returning");
+      return TRUE;
+    }
+
+    rdcstr processName = get_basename(strlower(StringFormat::Wide2UTF8(curFile)));
+
+    const bool yuanShenDirect =
+        processName == "yuanshen.exe" && SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD");
+    if(yuanShenDirect)
+    {
+      SQCWriteFixedTargetIdent(RenderDoc_FirstTargetControlPort);
+      if(!SQCStartDeferredAddHooks())
+        return FALSE;
+      SQCChainLog("DllMain deferred add_hooks for yuanshen direct mode");
+      SetLastError(0);
+      SQCChainLog("DllMain returning");
+      return TRUE;
+    }
+
     BOOL ret = add_hooks();
     SetLastError(0);
     SQCChainLog("DllMain returning");

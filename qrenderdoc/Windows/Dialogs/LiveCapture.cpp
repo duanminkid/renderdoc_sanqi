@@ -1264,26 +1264,58 @@ void LiveCapture::selfClose()
 
 void LiveCapture::connectionThreadEntry()
 {
-  const int connectTimeoutMS = 45000;
-  const int retrySleepMS = 250;
+  const int connectTimeoutMS = 900000;
+  const int minRetrySleepMS = 1000;
+  const int maxRetrySleepMS = 5000;
+  int retrySleepMS = minRetrySleepMS;
   QElapsedTimer connectTimer;
   connectTimer.start();
 
   ITargetControl *conn = NULL;
+  rdcstr lastBusyClient;
+  rdcstr localClient = GetSystemUsername();
+  uint32_t connectAttempts = 0;
+  uint32_t sameClientBusyAttempts = 0;
+  bool forceNextConnection = false;
 
   while(!shouldDisconnect() && connectTimer.elapsed() < connectTimeoutMS)
   {
-    conn = RENDERDOC_CreateTargetControl(m_Hostname, m_RemoteIdent, GetSystemUsername(), true);
-    if(conn && conn->Connected())
+    connectAttempts++;
+    conn = RENDERDOC_CreateTargetControl(m_Hostname, m_RemoteIdent, localClient, forceNextConnection);
+    if(conn && conn->Connected() && conn->GetBusyClient().empty())
       break;
 
     if(conn)
     {
+      rdcstr busyClient = conn->GetBusyClient();
       conn->Shutdown();
       conn = NULL;
+
+      if(!busyClient.empty())
+      {
+        lastBusyClient = busyClient;
+
+        const bool sameClient =
+            QString::fromUtf8(busyClient.c_str())
+                .compare(QString::fromUtf8(localClient.c_str()), Qt::CaseInsensitive) == 0;
+        if(sameClient)
+        {
+          sameClientBusyAttempts++;
+
+          if(!forceNextConnection && sameClientBusyAttempts >= 2)
+          {
+            qInfo() << "LiveCapture target ident" << m_RemoteIdent
+                    << "is busy by same client, forcing reconnect after"
+                    << connectTimer.elapsed() << "ms";
+            forceNextConnection = true;
+            retrySleepMS = minRetrySleepMS;
+          }
+        }
+      }
     }
 
     QThread::msleep(retrySleepMS);
+    retrySleepMS = qMin(retrySleepMS * 2, maxRetrySleepMS);
   }
 
   m_Connected.release();
@@ -1295,7 +1327,7 @@ void LiveCapture::connectionThreadEntry()
 
     const bool timedOut = connectTimer.elapsed() >= connectTimeoutMS;
 
-    GUIInvoke::call(this, [this, timedOut]() {
+    GUIInvoke::call(this, [this, timedOut, lastBusyClient]() {
       setTitle(tr("Connection failed"));
       ui->connectionStatus->setText(tr("Failed"));
       ui->connectionIcon->setPixmap(Pixmaps::del(ui->connectionIcon));
@@ -1310,9 +1342,18 @@ void LiveCapture::connectionThreadEntry()
 
       if(!shouldDisconnect())
       {
-        QString msg = timedOut
-                          ? tr("Timed out waiting for the target to open a capture connection.")
-                          : tr("The target capture connection closed before it could be established.");
+        QString msg;
+        if(timedOut && !lastBusyClient.empty())
+        {
+          msg = tr("Timed out waiting for the target capture connection. Existing client: %1.")
+                    .arg(QString::fromUtf8(lastBusyClient.c_str()));
+        }
+        else
+        {
+          msg = timedOut
+                    ? tr("Timed out waiting for the target to open a capture connection.")
+                    : tr("The target capture connection closed before it could be established.");
+        }
         RDDialog::critical(this, tr("Connection failed"), msg);
       }
     });
@@ -1320,6 +1361,9 @@ void LiveCapture::connectionThreadEntry()
     m_Connected.acquire();
     return;
   }
+
+  qInfo() << "LiveCapture connected to target ident" << m_RemoteIdent << "after" << connectAttempts
+          << "attempts in" << connectTimer.elapsed() << "ms";
 
   uint32_t pid = conn->GetPID();
   QString target = conn->GetTarget();
