@@ -75,7 +75,7 @@ find dist/Release{32,64}/ -iname '*.iobj' -exec rm '{}' \;
 # Copy in any android APKs that were built
 mkdir -p dist/Release64/plugins/android/
 if ls build-android-* > /dev/null; then
-	find build-android-* -iname 'org.renderdoc.renderdoccmd.*.apk' -exec cp '{}' dist/Release64/plugins/android ';'
+	find build-android-* -iname 'com.sqcap.capture.sqcaptur.*.apk' -exec cp '{}' dist/Release64/plugins/android ';'
 else
 	echo "WARNING: No android builds found, expected build-android-arm32 and build-android-arm64";
 
@@ -119,9 +119,9 @@ rm -f dist/ReleasePDBs{32,64}/*.{exp,lib,metagen} dist/Release{32,64}/*.vshost.*
 
 # In the 64bit release folder, make an x86 subfolder and copy in renderdoc 32bit
 mkdir -p dist/Release64/x86
-cp -R dist/Release32/{d3dcompiler_47.dll,system_load.dll,renderdoc.json,system_shim32.dll,kidcmd.exe,dbghelp.dll,symsrv.dll,symsrv.yes} dist/Release64/x86/
+cp -R dist/Release32/{d3dcompiler_47.dll,system_load.dll,system_load.json,system_shim32.dll,sanqicapture.exe,dbghelp.dll,symsrv.dll,symsrv.yes} dist/Release64/x86/
 mkdir -p dist/ReleasePDBs64/x86
-cp -R dist/ReleasePDBs32/{d3dcompiler_47.dll,system_load.dll,renderdoc.json,system_load.pdb,system_shim32.dll,system_shim32.pdb,kidcmd.exe,kidcmd.pdb,dbghelp.dll,symsrv.dll,symsrv.yes} dist/ReleasePDBs64/x86/
+cp -R dist/ReleasePDBs32/{d3dcompiler_47.dll,system_load.dll,system_load.json,system_load.pdb,system_shim32.dll,system_shim32.pdb,sanqicapture.exe,sanqicapture.pdb,dbghelp.dll,symsrv.dll,symsrv.yes} dist/ReleasePDBs64/x86/
 
 VERSION=`grep -E "#define RENDERDOC_VERSION_(MAJOR|MINOR)" renderdoc/api/replay/version.h | tr -dc '[0-9\n]' | tr '\n' '.' | grep -Eo '[0-9]+\.[0-9]+'`
 

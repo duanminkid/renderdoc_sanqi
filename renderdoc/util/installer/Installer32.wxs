@@ -46,7 +46,7 @@
         <Directory Id='INSTALLDIR' Name='RenderDoc'>
 
           <Component Id='QRenderDoc' Guid='0DB375D5-7712-4853-AA75-536DF863C827'>
-            <File Id='qrenderdocEXE' Name='qrenderdoc.exe' DiskId='1' Source='dist/Release32/qrenderdoc.exe' KeyPath='yes'>
+            <File Id='qrenderdocEXE' Name='qsanqiInjectTool.exe' DiskId='1' Source='dist/Release32/qsanqiInjectTool.exe' KeyPath='yes'>
               <Shortcut Id="startmenuRenderDoc" Directory="ProgramMenuDir" Name="RenderDoc" WorkingDirectory='INSTALLDIR' Icon="icon.ico" IconIndex="0" Advertise="yes" />
             </File>
 
@@ -84,7 +84,7 @@
 
           <Component Id='RenderDocCPP' Guid='2E6F718F-8BCC-4D41-9688-E99CF2F6B303'>
             <File Id='RenderDocCPP' Name='system_load.dll' DiskId='1' Source='dist/Release32/system_load.dll' KeyPath='yes' />
-            <File Id='RenderDocJSON' Name='renderdoc.json' DiskId='1' Source='dist/Release32/renderdoc.json' />
+            <File Id='RenderDocJSON' Name='system_load.json' DiskId='1' Source='dist/Release32/system_load.json' />
             <File Id='D3DCompiler47' Name='d3dcompiler_47.dll' DiskId='1' Source='dist/Release32/d3dcompiler_47.dll' />
             <File Id='RenderDocSHIM' Name='system_shim32.dll' DiskId='1' Source='dist/Release32/system_shim32.dll' />
             <File Id='dbghelpDLL' Name='dbghelp.dll' DiskId='1' Source='dist/Release32/dbghelp.dll' />
@@ -115,7 +115,7 @@
           </Component>
 
           <Component Id='RenderDocCMD' Guid='97338A5D-8FDB-4DF5-AEC7-14B36F234F29'>
-            <File Id='RenderDocCMD' Name='kidcmd.exe' DiskId='1' Source='dist/Release32/kidcmd.exe' KeyPath='yes' />
+            <File Id='RenderDocCMD' Name='sanqicapture.exe' DiskId='1' Source='dist/Release32/sanqicapture.exe' KeyPath='yes' />
           </Component>
 
           <Component Id='Qt' Guid='63C1C176-5B7C-4D29-9382-8E0FA75C5B80'>
@@ -183,8 +183,8 @@
 
             <Directory Id='plugins_android' Name='android'>
               <Component Id='android_plugin' Guid='D469744A-7915-46B8-88B4-4B76223EE8CB'>
-                <File Id='APKarm32' Name='org.renderdoc.renderdoccmd.arm32.apk' DiskId='1' Source='dist/Release32/plugins/android/org.renderdoc.renderdoccmd.arm32.apk' KeyPath='yes' />
-                <File Id='APKarm64' Name='org.renderdoc.renderdoccmd.arm64.apk' DiskId='1' Source='dist/Release32/plugins/android/org.renderdoc.renderdoccmd.arm64.apk' />
+                <File Id='APKarm32' Name='com.sqcap.capture.sqcaptur.arm32.apk' DiskId='1' Source='dist/Release32/plugins/android/com.sqcap.capture.sqcaptur.arm32.apk' KeyPath='yes' />
+                <File Id='APKarm64' Name='com.sqcap.capture.sqcaptur.arm64.apk' DiskId='1' Source='dist/Release32/plugins/android/com.sqcap.capture.sqcaptur.arm64.apk' />
                 <File Id='adb' Name='adb.exe' DiskId='1' Source='dist/Release32/plugins/android/adb.exe' />
                 <File Id='AdbWinApi' Name='AdbWinApi.dll' DiskId='1' Source='dist/Release32/plugins/android/AdbWinApi.dll' />
                 <File Id='AdbWinUsbApi' Name='AdbWinUsbApi.dll' DiskId='1' Source='dist/Release32/plugins/android/AdbWinUsbApi.dll' />

@@ -137,6 +137,7 @@ EXPORTS
     INTERNAL_SetCaptureOptions
     INTERNAL_GetTargetControlIdent
     INTERNAL_StartYuanShenDirectHooks
+    INTERNAL_StartSteamHooks
     INTERNAL_ApplyEnvMods
     INTERNAL_EnvMod
     INTERNAL_EnvModName

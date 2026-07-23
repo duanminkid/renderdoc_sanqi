@@ -204,7 +204,7 @@ extern "C" RENDERDOC_API const char *RENDERDOC_CC RENDERDOC_GetVersionString()
   return MAJOR_MINOR_VERSION_STRING;
 }
 
-__declspec(noinline) extern "C" RENDERDOC_API bool RENDERDOC_CC RENDERDOC_IsReleaseBuild()
+extern "C" RENDERDOC_NOINLINE RENDERDOC_API bool RENDERDOC_CC RENDERDOC_IsReleaseBuild()
 {
 #if ENABLED(RDOC_RELEASE)
   return true;
@@ -233,7 +233,8 @@ extern "C" RENDERDOC_API const SDObject *RENDERDOC_CC RENDERDOC_GetConfigSetting
   return SanQiCapture::Inst().GetConfigSetting(name);
 }
 
-__declspec(noinline) extern "C" RENDERDOC_API SDObject *RENDERDOC_CC RENDERDOC_SetConfigSetting(const rdcstr &name)
+extern "C" RENDERDOC_NOINLINE RENDERDOC_API SDObject *RENDERDOC_CC
+RENDERDOC_SetConfigSetting(const rdcstr &name)
 {
   return SanQiCapture::Inst().SetConfigSetting(name);
 }
@@ -398,7 +399,7 @@ extern "C" RENDERDOC_API bool RENDERDOC_CC RENDERDOC_IsGlobalHookActive()
   return Process::IsGlobalHookActive();
 }
 
-__declspec(noinline) extern "C" RENDERDOC_API bool RENDERDOC_CC RENDERDOC_CanGlobalHook()
+extern "C" RENDERDOC_NOINLINE RENDERDOC_API bool RENDERDOC_CC RENDERDOC_CanGlobalHook()
 {
   return Process::CanGlobalHook();
 }

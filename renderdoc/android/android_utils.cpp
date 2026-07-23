@@ -32,6 +32,32 @@
 
 namespace Android
 {
+rdcstr GetADBActivityLaunchError(const Process::ProcessResult &result)
+{
+  rdcstr output = result.strStdout;
+  if(!result.strStderror.empty())
+  {
+    if(!output.empty())
+      output += "\n";
+    output += result.strStderror;
+  }
+  output.trim();
+
+  const rdcstr lowerOutput = strlower(output);
+  const bool reportedError = lowerOutput.contains("error:") ||
+                             lowerOutput.contains("error type") ||
+                             lowerOutput.contains("exception occurred") ||
+                             lowerOutput.contains("securityexception");
+
+  if(result.retCode == 0 && !reportedError)
+    return {};
+
+  if(output.empty())
+    return StringFormat::Fmt("adb exited with code %d without diagnostic output.", result.retCode);
+
+  return output;
+}
+
 bool IsHostADB(const char *hostname)
 {
   return !strncmp(hostname, "adb:", 4);
@@ -376,8 +402,8 @@ struct LogLine
     // F/libc    (11519): Fatal signal 11 (SIGSEGV), code 1, fault addr 0x4 in tid 11618 (FooBar), pid 11519 (blah)
     // F/DEBUG   (12061): backtrace:
     // F/DEBUG   (12061):     #00 pc 000485ec  /system/lib/libc.so (pthread_mutex_lock+1)
-    // F/DEBUG   (12061):     #01 pc 00137449  /data/app/org.renderdoc.renderdoccmd.arm32==/lib/arm/libVkLayer_GLES_RenderDoc.so
-    // F/DEBUG   (12061):     #02 pc 0013bbf1  /data/app/org.renderdoc.renderdoccmd.arm32==/lib/arm/libVkLayer_GLES_RenderDoc.so
+    // F/DEBUG   (12061):     #01 pc 00137449  /data/app/com.sqcap.capture.sqcaptur.arm32==/lib/arm/libVkLayer_GLES_RenderDoc.so
+    // F/DEBUG   (12061):     #02 pc 0013bbf1  /data/app/com.sqcap.capture.sqcaptur.arm32==/lib/arm/libVkLayer_GLES_RenderDoc.so
     //
     // clang-format on
     //
@@ -884,6 +910,28 @@ TEST_CASE("Test that log line parsing is robust", "[android]")
       CHECK(broken.parse(truncated) == false);
     }
   };
+}
+
+TEST_CASE("Test Android activity launch error parsing", "[android]")
+{
+  using namespace Android;
+
+  Process::ProcessResult success = {"Starting: Intent { cmp=com.example/.MainActivity }", "", 0};
+  CHECK(GetADBActivityLaunchError(success).empty());
+
+  Process::ProcessResult warning = {
+      "Warning: Activity not started, its current task has been brought to the front", "", 0};
+  CHECK(GetADBActivityLaunchError(warning).empty());
+
+  Process::ProcessResult missingActivity = {
+      "Error type 3\nError: Activity class {com.example/.Missing} does not exist.", "", 0};
+  CHECK(GetADBActivityLaunchError(missingActivity).contains("does not exist"));
+
+  Process::ProcessResult unauthorized = {"", "adb: device unauthorized", 1};
+  CHECK(GetADBActivityLaunchError(unauthorized).contains("device unauthorized"));
+
+  Process::ProcessResult noOutput = {"", "", 1};
+  CHECK(GetADBActivityLaunchError(noOutput).contains("exited with code 1"));
 }
 
 #endif

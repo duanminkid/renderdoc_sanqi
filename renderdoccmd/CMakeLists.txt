@@ -192,8 +192,11 @@ if(ANDROID)
     endif()
     set(KEYSTORE ${CMAKE_CURRENT_BINARY_DIR}/debug.keystore)
     add_custom_command(OUTPUT ${KEYSTORE}
-                       WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-                       COMMAND ${JAVA_BIN}/keytool -genkey -keystore ${KEYSTORE} -storepass android -alias rdocandroidkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=, OU=, O=, L=, S=, C=")
+                       DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/android/GenerateDebugKeystore.cmake
+                       COMMAND ${CMAKE_COMMAND}
+                               -DKEYSTORE=${KEYSTORE}
+                               -DKEYTOOL=${JAVA_BIN}/keytool
+                               -P ${CMAKE_CURRENT_SOURCE_DIR}/android/GenerateDebugKeystore.cmake)
 
     # APK_VERSION_CODE corresponds to android:versionCode, an internal integer value that can be queried. Higher numbers indicate more recent versions.
     # APK_VERSION_NAME corresponds to android:versionName, a string value that is displayed to the user.
@@ -214,7 +217,7 @@ if(ANDROID)
         message(FATAL_ERROR "ABI ${ANDROID_ABI} is not supported.")
     endif()
 
-    set(RENDERDOC_ANDROID_PACKAGE_NAME "org.renderdoc.renderdoccmd.${ABI_EXTENSION_NAME}")
+    set(RENDERDOC_ANDROID_PACKAGE_NAME "com.sqcap.capture.sqcaptur.${ABI_EXTENSION_NAME}")
 
     set(APK_FILE ${CMAKE_BINARY_DIR}/bin/${RENDERDOC_ANDROID_PACKAGE_NAME}.apk)
     add_custom_target(apk ALL
@@ -223,7 +226,7 @@ if(ANDROID)
     option(ENABLE_CUSTOM_WRAP_SCRIPT "Enable custom wrap.sh on Android to workaround Android bug" ON)
 
     # Copy in android package files, replacing the package name with the architecture-specific package name
-    configure_file(android/Loader.java ${CMAKE_CURRENT_BINARY_DIR}/src/org/renderdoc/renderdoccmd/Loader.java)
+    configure_file(android/Loader.java ${CMAKE_CURRENT_BINARY_DIR}/src/com/sqcap/capture/sqcaptur/Loader.java)
     configure_file(android/AndroidManifest.xml ${CMAKE_CURRENT_BINARY_DIR}/AndroidManifest.xml)
     configure_file(android/icon.png ${CMAKE_CURRENT_BINARY_DIR}/res/drawable/icon.png COPYONLY)
 
@@ -297,12 +300,12 @@ if(ANDROID)
     if(NOT EXISTS ${D8_SCRIPT})
         set(DEX_COMMAND ${BUILD_TOOLS}/dx${TOOL_SCRIPT_EXTENSION} --dex --output=bin/classes.dex ./obj)
     else()
-        set(DEX_COMMAND ${D8_SCRIPT} --output ./bin/ ./obj/org/renderdoc/renderdoccmd/${ABI_EXTENSION_NAME}/*.class)
+        set(DEX_COMMAND ${D8_SCRIPT} --output ./bin/ ./obj/com/sqcap/capture/sqcaptur/${ABI_EXTENSION_NAME}/*.class)
     endif()
 
     add_custom_command(OUTPUT ${APK_FILE} APPEND
                        COMMAND ${BUILD_TOOLS}/aapt package -f -m -S res -J src -M AndroidManifest.xml -I ${ANDROID_JAR}
-                       COMMAND ${JAVA_BIN}/javac -d ./obj -source 1.7 -target 1.7 -bootclasspath ${RT_JAR} -classpath "${CLASS_PATH}" -sourcepath src src/org/renderdoc/renderdoccmd/*.java
+                       COMMAND ${JAVA_BIN}/javac -d ./obj -source 1.7 -target 1.7 -bootclasspath ${RT_JAR} -classpath "${CLASS_PATH}" -sourcepath src src/com/sqcap/capture/sqcaptur/*.java
                        COMMAND ${DEX_COMMAND}
                        COMMAND ${BUILD_TOOLS}/aapt package -f -M AndroidManifest.xml --version-code ${APK_VERSION_CODE} --version-name ${APK_VERSION_NAME} -S res -I ${ANDROID_JAR} -F RenderDocCmd-unaligned.apk bin libs
                        COMMAND ${BUILD_TOOLS}/zipalign -f 4 RenderDocCmd-unaligned.apk RenderDocCmd.apk

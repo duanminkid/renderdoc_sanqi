@@ -155,8 +155,10 @@ enum
 
 #define RENDERDOC_ANDROID_LIBRARY "libVkLayer_GLES_RenderDoc.so"
 
-// This MUST match the package name in the build process that generates per-architecture packages
-#define RENDERDOC_ANDROID_PACKAGE_BASE "org.renderdoc.sanqicapture"
+// These MUST match the Android helper build and the intent reader in renderdoccmd_android.cpp.
+// Keep the final values free of post-build replacement patterns used by strip_exports.py.
+#define RENDERDOC_ANDROID_PACKAGE_BASE "com.sqcap.capture.sqcaptur"
+#define RENDERDOC_ANDROID_INTENT_EXTRA "sqcaptool___"
 
 /////////////////////////////////////////////////
 // Debugging features configuration

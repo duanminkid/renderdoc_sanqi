@@ -53,33 +53,9 @@ static void SQCChainLog(const char *msg)
   CloseHandle(h);
 }
 
-static bool SQCUseYuanShenInlineHooks()
+static bool SQCUseInlineDXGIHooks()
 {
-  char direct[16] = {};
-  char inlineHooks[16] = {};
-  if(GetEnvironmentVariableA("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD", direct, sizeof(direct)) == 0 ||
-     GetEnvironmentVariableA("SQC_YUANSHEN_INLINE_HOOKS", inlineHooks, sizeof(inlineHooks)) == 0)
-    return false;
-
-  const auto enabled = [](const char *value) {
-    return _stricmp(value, "0") != 0 && _stricmp(value, "false") != 0 &&
-           _stricmp(value, "off") != 0;
-  };
-  if(!enabled(direct) || !enabled(inlineHooks))
-    return false;
-
-  wchar_t processPath[MAX_PATH] = {};
-  if(GetModuleFileNameW(NULL, processPath, MAX_PATH) == 0)
-    return false;
-
-  const wchar_t *baseName = processPath;
-  for(const wchar_t *character = processPath; *character != 0; ++character)
-  {
-    if(*character == L'\\' || *character == L'/')
-      baseName = character + 1;
-  }
-
-  return _wcsicmp(baseName, L"YuanShen.exe") == 0;
+  return LibraryHooks::DXGIInlineHooksDispatchReady();
 }
 
 static thread_local bool s_SQCInlineFactoryCall = false;
@@ -378,7 +354,7 @@ private:
   {
     static thread_local bool inFactory = false;
     static thread_local bool inGuardFallback = false;
-    const bool inlineHooks = SQCUseYuanShenInlineHooks();
+    const bool inlineHooks = SQCUseInlineDXGIHooks();
     PFN_CREATE_DXGI_FACTORY saved = dxgihooks.CreateDXGIFactory();
     SQCChainLog("CreateDXGIFactory_hook hit");
     if(ppFactory)
@@ -470,7 +446,7 @@ private:
   {
     static thread_local bool inFactory = false;
     static thread_local bool inGuardFallback = false;
-    const bool inlineHooks = SQCUseYuanShenInlineHooks();
+    const bool inlineHooks = SQCUseInlineDXGIHooks();
     PFN_CREATE_DXGI_FACTORY saved = dxgihooks.CreateDXGIFactory1();
     SQCChainLog("CreateDXGIFactory1_hook hit");
     if(ppFactory)
@@ -562,7 +538,7 @@ private:
   {
     static thread_local bool inFactory = false;
     static thread_local bool inGuardFallback = false;
-    const bool inlineHooks = SQCUseYuanShenInlineHooks();
+    const bool inlineHooks = SQCUseInlineDXGIHooks();
     PFN_CREATE_DXGI_FACTORY2 saved = dxgihooks.CreateDXGIFactory2();
     SQCChainLog("CreateDXGIFactory2_hook hit");
     if(ppFactory)

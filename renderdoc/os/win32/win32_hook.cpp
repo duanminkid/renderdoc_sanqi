@@ -45,6 +45,19 @@ std::map<void **, void *> s_InstalledHooks;
 Threading::CriticalSection installedLock;
 static thread_local int s_SuppressHooking = 0;
 
+enum SQCSteamDXGIInlineState
+{
+  SQCSteamDXGIInline_Disabled = 0,
+  SQCSteamDXGIInline_Installing,
+  SQCSteamDXGIInline_Active,
+  SQCSteamDXGIInline_Failed,
+};
+
+static volatile LONG s_SQCInlineHooksActive = 0;
+static volatile LONG s_SQCInlineHooksDispatchReady = 0;
+static volatile LONG s_SQCSteamDXGIInlineState = SQCSteamDXGIInline_Disabled;
+static volatile LONG s_SQCHookRegistrationState = 0;
+
 static void SQCChainLog(const char *msg)
 {
   static const bool enabled = []() {
@@ -75,6 +88,7 @@ static void SQCChainLog(const char *msg)
 
 static bool SQCEnvEnabled(const char *name);
 static bool IsLoaderHookLibrary(const char *dllName);
+static bool IsDXGIFactoryFunction(const char *func);
 
 static bool ShouldSkipFunctionHook(const char *modName, const char *dllName, const char *function,
                                    HMODULE module)
@@ -89,6 +103,15 @@ static bool ShouldSkipFunctionHook(const char *modName, const char *dllName, con
     wsprintfA(msg, "ApplyHooks skip overlay function module=%s import=%s function=%s", modName,
               dllName, function);
     SQCChainLog(msg);
+    return true;
+  }
+
+  if(SQCEnvEnabled("SQC_STEAM_GAME_CAPTURE") && !_stricmp(dllName, "dxgi.dll") &&
+     IsDXGIFactoryFunction(function))
+  {
+    // Steam owns these three exports through the committed MinHook transaction. Publishing the same
+    // hook directly through an IAT slot creates a second entry path and can recurse before the
+    // trampoline returns.
     return true;
   }
 
@@ -753,7 +776,6 @@ struct CachedHookData
 };
 
 static CachedHookData *s_HookData = NULL;
-static bool s_SQCYuanShenInlineHooksActive = false;
 static bool s_SQCMinHookInitialised = false;
 static rdcarray<void **> s_SQCInlineOriginalPointers;
 
@@ -768,6 +790,21 @@ static bool SQCUseYuanShenInlineHooks()
   return strlower(get_basename(processPath)) == "yuanshen.exe";
 }
 
+static bool SQCUseHogwartsDXGIInlineHooks()
+{
+  if(!SQCEnvEnabled("SQC_HOGWARTS_GAME_CAPTURE"))
+    return false;
+
+  char processPath[MAX_PATH] = {};
+  GetModuleFileNameA(NULL, processPath, MAX_PATH);
+  return strlower(get_basename(processPath)) == "hogwartslegacy.exe";
+}
+
+static bool SQCUseSteamDXGIInlineHooks()
+{
+  return SQCEnvEnabled("SQC_STEAM_GAME_CAPTURE");
+}
+
 static HMODULE SQCLoadSystemLibrary(const char *libraryName)
 {
   char path[MAX_PATH] = {};
@@ -779,8 +816,14 @@ static HMODULE SQCLoadSystemLibrary(const char *libraryName)
   return LoadLibraryA(path);
 }
 
-static bool SQCIsRequiredInlineHook(const rdcstr &libraryName, const rdcstr &functionName)
+static bool SQCIsRequiredInlineHook(bool hogwartsDXGIOnly, const rdcstr &libraryName,
+                                    const rdcstr &functionName)
 {
+  if(hogwartsDXGIOnly)
+    return libraryName == "dxgi.dll" &&
+           (functionName == "CreateDXGIFactory" || functionName == "CreateDXGIFactory1" ||
+            functionName == "CreateDXGIFactory2");
+
   if(libraryName == "d3d11.dll")
     return functionName == "D3D11CreateDevice" ||
            functionName == "D3D11CreateDeviceAndSwapChain";
@@ -803,39 +846,47 @@ static void SQCResetInlineOriginalPointers()
   s_SQCInlineOriginalPointers.clear();
 }
 
-static bool SQCRemoveYuanShenInlineHooks()
+static bool SQCRemoveInlineHooks()
 {
   if(s_SQCMinHookInitialised)
   {
     MH_STATUS disableStatus = MH_DisableHook(MH_ALL_HOOKS);
     if(disableStatus != MH_OK && disableStatus != MH_ERROR_DISABLED)
-      RDCWARN("Failed to disable YuanShen inline hooks: %d", (int)disableStatus);
+      RDCWARN("Failed to disable graphics inline hooks: %d", (int)disableStatus);
 
     MH_STATUS uninitialiseStatus = MH_Uninitialize();
     if(uninitialiseStatus != MH_OK)
     {
-      RDCWARN("Failed to uninitialise YuanShen inline hooks: %d", (int)uninitialiseStatus);
-      SQCChainLog("YuanShen inline cleanup incomplete; refusing IAT fallback");
+      RDCWARN("Failed to uninitialise graphics inline hooks: %d", (int)uninitialiseStatus);
+      SQCChainLog("Graphics inline cleanup incomplete; refusing IAT fallback");
       return false;
     }
   }
 
   s_SQCMinHookInitialised = false;
-  s_SQCYuanShenInlineHooksActive = false;
+  InterlockedExchange(&s_SQCInlineHooksDispatchReady, 0);
+  InterlockedExchange(&s_SQCInlineHooksActive, 0);
   SQCResetInlineOriginalPointers();
   InterlockedExchange(&SQC_CaptureEntryHookCount, 0);
   return true;
 }
 
-static bool SQCApplyYuanShenInlineHooks()
+static bool SQCApplyInlineHooks(bool hogwartsDXGIOnly)
 {
-  SQCChainLog("YuanShen inline hook transaction begin");
+  const char *profile = hogwartsDXGIOnly
+                            ? (SQCUseSteamDXGIInlineHooks() ? "Steam DXGI" : "Hogwarts DXGI")
+                            : "YuanShen D3D11/DXGI";
+  {
+    char msg[128] = {};
+    wsprintfA(msg, "%s inline hook transaction begin", profile);
+    SQCChainLog(msg);
+  }
 
   MH_STATUS status = MH_Initialize();
   if(status != MH_OK)
   {
     char msg[128] = {};
-    wsprintfA(msg, "YuanShen inline MH_Initialize failed status=%d", (int)status);
+    wsprintfA(msg, "%s inline MH_Initialize failed status=%d", profile, (int)status);
     SQCChainLog(msg);
     return false;
   }
@@ -845,19 +896,22 @@ static bool SQCApplyYuanShenInlineHooks()
 
   for(const char *libraryName : {"d3d11.dll", "dxgi.dll"})
   {
+    if(hogwartsDXGIOnly && _stricmp(libraryName, "dxgi.dll") != 0)
+      continue;
+
     auto hooksetIt = s_HookData->DllHooks.find(libraryName);
     if(hooksetIt == s_HookData->DllHooks.end())
     {
-      SQCChainLog("YuanShen inline required hook library was not registered");
-      SQCRemoveYuanShenInlineHooks();
+      SQCChainLog("Graphics inline required hook library was not registered");
+      SQCRemoveInlineHooks();
       return false;
     }
 
     HMODULE module = SQCLoadSystemLibrary(libraryName);
     if(module == NULL)
     {
-      SQCChainLog("YuanShen inline failed to load a system graphics library");
-      SQCRemoveYuanShenInlineHooks();
+      SQCChainLog("Graphics inline failed to load a system graphics library");
+      SQCRemoveInlineHooks();
       return false;
     }
 
@@ -867,21 +921,21 @@ static bool SQCApplyYuanShenInlineHooks()
 
     for(FunctionHook &hook : hookset.FunctionHooks)
     {
-      if(!SQCIsRequiredInlineHook(hooksetIt->first, hook.function))
+      if(!SQCIsRequiredInlineHook(hogwartsDXGIOnly, hooksetIt->first, hook.function))
         continue;
 
       if(hook.orig == NULL || hook.hook == NULL)
       {
-        SQCChainLog("YuanShen inline hook registration is incomplete");
-        SQCRemoveYuanShenInlineHooks();
+        SQCChainLog("Graphics inline hook registration is incomplete");
+        SQCRemoveInlineHooks();
         return false;
       }
 
       FARPROC target = GetProcAddress(module, hook.function.c_str());
       if(target == NULL)
       {
-        SQCChainLog("YuanShen inline required export was not found");
-        SQCRemoveYuanShenInlineHooks();
+        SQCChainLog("Graphics inline required export was not found");
+        SQCRemoveInlineHooks();
         return false;
       }
 
@@ -889,38 +943,63 @@ static bool SQCApplyYuanShenInlineHooks()
       if(status != MH_OK)
       {
         char msg[256] = {};
-        wsprintfA(msg, "YuanShen inline MH_CreateHook failed function=%s status=%d",
+        wsprintfA(msg, "%s inline MH_CreateHook failed function=%s status=%d", profile,
                   hook.function.c_str(), (int)status);
         SQCChainLog(msg);
-        SQCRemoveYuanShenInlineHooks();
+        SQCRemoveInlineHooks();
         return false;
       }
 
       s_SQCInlineOriginalPointers.push_back(hook.orig);
       createdHooks++;
     }
+
+    if(hogwartsDXGIOnly)
+    {
+      // Hogwarts continues through normal IAT registration. Fetch the non-inline DXGI originals
+      // before any IAT slot can publish their hooks to another thread.
+      for(FunctionHook &hook : hookset.FunctionHooks)
+      {
+        if(hook.orig != NULL && *hook.orig == NULL)
+          *hook.orig = FetchOriginalFunction(module, hook);
+      }
+    }
   }
 
-  if(createdHooks != 5)
+  const size_t expectedHooks = hogwartsDXGIOnly ? 3 : 5;
+  if(createdHooks != expectedHooks)
   {
-    SQCChainLog("YuanShen inline hook transaction did not create all five hooks");
-    SQCRemoveYuanShenInlineHooks();
+    char msg[160] = {};
+    wsprintfA(msg, "%s inline hook transaction created %u of %u hooks", profile,
+              (unsigned int)createdHooks, (unsigned int)expectedHooks);
+    SQCChainLog(msg);
+    SQCRemoveInlineHooks();
     return false;
   }
 
+  // Every trampoline already exists at this point. Publish the mode before MinHook exposes the
+  // first detour so a racing factory call never mistakes an inline entry for an IAT-only hook.
+  InterlockedExchange(&s_SQCInlineHooksDispatchReady, 1);
   status = MH_EnableHook(MH_ALL_HOOKS);
   if(status != MH_OK)
   {
     char msg[128] = {};
-    wsprintfA(msg, "YuanShen inline MH_EnableHook failed status=%d", (int)status);
+    wsprintfA(msg, "%s inline MH_EnableHook failed status=%d", profile, (int)status);
     SQCChainLog(msg);
-    SQCRemoveYuanShenInlineHooks();
+    InterlockedExchange(&s_SQCInlineHooksDispatchReady, 0);
+    InterlockedExchange(&s_SQCInlineHooksActive, 0);
+    SQCRemoveInlineHooks();
     return false;
   }
 
-  s_SQCYuanShenInlineHooksActive = true;
+  InterlockedExchange(&s_SQCInlineHooksActive, 1);
   InterlockedExchange(&SQC_CaptureEntryHookCount, (LONG)createdHooks);
-  SQCChainLog("YuanShen inline hook transaction committed hooks=5");
+  {
+    char msg[128] = {};
+    wsprintfA(msg, "%s inline hook transaction committed hooks=%u", profile,
+              (unsigned int)createdHooks);
+    SQCChainLog(msg);
+  }
   return true;
 }
 
@@ -1088,7 +1167,9 @@ HMODULE WINAPI Hooked_LoadLibraryExA(LPCSTR lpLibFileName, HANDLE fileHandle, DW
   DWORD err = GetLastError();
 
   if(dohook && mod && !IsAPISet(lpLibFileName))
+  {
     HookAllModules();
+  }
 
   SetLastError(err);
 
@@ -1147,7 +1228,9 @@ HMODULE WINAPI Hooked_LoadLibraryExW(LPCWSTR lpLibFileName, HANDLE fileHandle, D
   DWORD err = GetLastError();
 
   if(dohook && mod && !IsAPISet(lpLibFileName))
+  {
     HookAllModules();
+  }
 
   SetLastError(err);
 
@@ -1265,8 +1348,10 @@ FARPROC WINAPI Hooked_GetProcAddress(HMODULE mod, LPCSTR func)
           realfunc = GetProcAddress(mod, func);
         }
 
+        const bool steamInlineFactory =
+            SQCUseSteamDXGIInlineHooks() && LibraryHooks::DXGIInlineHooksDispatchReady();
         if(!_stricmp(it->first.c_str(), "dxgi.dll") && IsDXGIFactoryFunction(func) &&
-           SQCEnvEnabled("SQC_DXGI_GETPROC_BYPASS"))
+           (steamInlineFactory || SQCEnvEnabled("SQC_DXGI_GETPROC_BYPASS")))
         {
           static bool loggedFactory = false;
           static bool loggedFactory1 = false;
@@ -1278,7 +1363,8 @@ FARPROC WINAPI Hooked_GetProcAddress(HMODULE mod, LPCSTR func)
           if(!*logged)
           {
             char msg[512] = {};
-            wsprintfA(msg, "Hooked_GetProcAddress bypass DXGI factory function=%s real=%p hook=%p",
+            wsprintfA(msg,
+                      "Hooked_GetProcAddress keep DXGI factory export function=%s real=%p hook=%p",
                       func, realfunc, found->hook);
             SQCChainLog(msg);
             *logged = true;
@@ -1419,12 +1505,29 @@ void LibraryHooks::BeginHookRegistration()
 {
   SQCChainLog("BeginHookRegistration");
   InterlockedExchange(&SQC_CaptureEntryHookCount, 0);
+  InterlockedExchange(&s_SQCHookRegistrationState, 0);
+  InterlockedExchange(&s_SQCSteamDXGIInlineState, SQCSteamDXGIInline_Disabled);
   InitHookData();
 }
 
 bool LibraryHooks::HooksApplied()
 {
   return InterlockedCompareExchange(&SQC_CaptureEntryHookCount, 0, 0) > 0;
+}
+
+bool LibraryHooks::HookRegistrationSucceeded()
+{
+  return InterlockedCompareExchange(&s_SQCHookRegistrationState, 0, 0) > 0;
+}
+
+bool LibraryHooks::DXGIInlineHooksActive()
+{
+  return InterlockedCompareExchange(&s_SQCInlineHooksActive, 0, 0) > 0;
+}
+
+bool LibraryHooks::DXGIInlineHooksDispatchReady()
+{
+  return InterlockedCompareExchange(&s_SQCInlineHooksDispatchReady, 0, 0) > 0;
 }
 
 // hook all functions for currently loaded modules.
@@ -1435,22 +1538,59 @@ void LibraryHooks::EndHookRegistration()
   for(auto it = s_HookData->DllHooks.begin(); it != s_HookData->DllHooks.end(); ++it)
     std::sort(it->second.FunctionHooks.begin(), it->second.FunctionHooks.end());
 
-  if(SQCUseYuanShenInlineHooks())
+  const bool yuanShenInlineHooks = SQCUseYuanShenInlineHooks();
+  const bool steamCapture = SQCUseSteamDXGIInlineHooks();
+  const bool hogwartsDXGIInlineHooks = SQCUseHogwartsDXGIInlineHooks();
+  bool dxgiInlineHooks = hogwartsDXGIInlineHooks;
+  bool inlineHooksApplied = false;
+
+  if(steamCapture)
   {
-    if(SQCApplyYuanShenInlineHooks())
+    // This runs from INTERNAL_StartSteamHooks after DllMain has returned. Install the DXGI
+    // trampolines synchronously so the injector never treats a merely pending hook as success.
+    InterlockedExchange(&s_SQCSteamDXGIInlineState, SQCSteamDXGIInline_Installing);
+    inlineHooksApplied = SQCApplyInlineHooks(true);
+    InterlockedExchange(&s_SQCSteamDXGIInlineState,
+                        inlineHooksApplied ? SQCSteamDXGIInline_Active
+                                           : SQCSteamDXGIInline_Failed);
+    dxgiInlineHooks = inlineHooksApplied;
+    if(!inlineHooksApplied)
     {
-      // Inline hooks cover dynamically resolved graphics exports directly. Do not modify the main
-      // executable's loader IAT in this mode; that mutation is what correlated with the startup
-      // exception loop in the captured YuanShen diagnostics.
-      SQCChainLog("EndHookRegistration YuanShen inline-only path committed");
+      InterlockedExchange(&s_SQCHookRegistrationState, -1);
+      SQCChainLog("EndHookRegistration Steam DXGI inline path failed");
       return;
     }
+  }
 
-    // The old light-mode fallback patches GetProcAddress in the main executable. Runtime evidence
-    // ties that mutation to the repeated startup exception loop, so a failed inline transaction
-    // must be reported as HooksFailed instead of silently restoring the known-slow path.
-    SQCChainLog("EndHookRegistration YuanShen inline path failed; IAT fallback blocked");
-    return;
+  if(yuanShenInlineHooks || dxgiInlineHooks)
+  {
+    if(inlineHooksApplied || SQCApplyInlineHooks(dxgiInlineHooks))
+    {
+      if(dxgiInlineHooks)
+      {
+        // Keep normal IAT registration for the remaining APIs. The DXGI originals now point at
+        // MinHook trampolines, so a Steam overlay detour cannot bounce the factory call back into
+        // our hook and force E_FAIL.
+        SQCChainLog("EndHookRegistration Steam DXGI inline path committed; continuing IAT hooks");
+      }
+      else
+      {
+        // Inline hooks cover dynamically resolved graphics exports directly. Do not modify the main
+        // executable's loader IAT in this mode; that mutation is what correlated with the startup
+        // exception loop in the captured YuanShen diagnostics.
+        SQCChainLog("EndHookRegistration YuanShen inline-only path committed");
+        InterlockedExchange(&s_SQCHookRegistrationState, 1);
+        return;
+      }
+    }
+    else
+    {
+      // Both profiles reached this path because their IAT-only fallback has a demonstrated startup
+      // failure: YuanShen loops in loader exceptions, while Hogwarts re-enters CreateDXGIFactory.
+      SQCChainLog("EndHookRegistration graphics inline path failed; IAT fallback blocked");
+      InterlockedExchange(&s_SQCHookRegistrationState, -1);
+      return;
+    }
   }
 
 #if ENABLED(VERBOSE_DEBUG_HOOK)
@@ -1475,6 +1615,7 @@ void LibraryHooks::EndHookRegistration()
   }
 
   SQCChainLog("EndHookRegistration done");
+  InterlockedExchange(&s_SQCHookRegistrationState, 1);
 }
 
 void LibraryHooks::Refresh()
@@ -1490,8 +1631,7 @@ void LibraryHooks::RemoveHooks()
 {
   LibraryHooks::RemoveHookCallbacks();
 
-  if(s_SQCYuanShenInlineHooksActive || s_SQCMinHookInitialised)
-    SQCRemoveYuanShenInlineHooks();
+  bool liveIATHookCouldRemain = false;
 
   for(auto it = s_InstalledHooks.begin(); it != s_InstalledHooks.end(); ++it)
   {
@@ -1503,6 +1643,12 @@ void LibraryHooks::RemoveHooks()
     if(!success)
     {
       RDCERR("Failed to make IAT entry writeable 0x%p", IATentry);
+
+      MEMORY_BASIC_INFORMATION memory = {};
+      if(VirtualQuery(IATentry, &memory, sizeof(memory)) == sizeof(memory) &&
+         memory.State == MEM_COMMIT)
+        liveIATHookCouldRemain = true;
+
       continue;
     }
 
@@ -1513,6 +1659,20 @@ void LibraryHooks::RemoveHooks()
     {
       RDCERR("Failed to restore IAT entry protection 0x%p", IATentry);
       continue;
+    }
+  }
+
+  // Restore every IAT entry before releasing MinHook trampolines. This prevents another thread
+  // from entering a DXGI hook through an IAT slot while its saved original is being destroyed.
+  if(LibraryHooks::DXGIInlineHooksActive() || s_SQCMinHookInitialised)
+  {
+    if(liveIATHookCouldRemain)
+    {
+      SQCChainLog("Retaining graphics inline trampolines because a live IAT hook was not restored");
+    }
+    else
+    {
+      SQCRemoveInlineHooks();
     }
   }
 }

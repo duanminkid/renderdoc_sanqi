@@ -81,8 +81,8 @@ std::ostream &clog()
 }
 }
 
-__declspec(noinline) extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunUnitTests(const rdcstr &command,
-                                                                 const rdcarray<rdcstr> &args)
+extern "C" RENDERDOC_NOINLINE RENDERDOC_API int RENDERDOC_CC
+RENDERDOC_RunUnitTests(const rdcstr &command, const rdcarray<rdcstr> &args)
 {
   LogOutputter logbuf;
   std::ostream logstream(&logbuf);
@@ -120,8 +120,8 @@ __declspec(noinline) extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunUnit
 #include "api/replay/rdcarray.h"
 #include "api/replay/rdcstr.h"
 
-__declspec(noinline) extern "C" RENDERDOC_API int RENDERDOC_CC RENDERDOC_RunUnitTests(const rdcstr &command,
-                                                                 const rdcarray<rdcstr> &args)
+extern "C" RENDERDOC_NOINLINE RENDERDOC_API int RENDERDOC_CC
+RENDERDOC_RunUnitTests(const rdcstr &command, const rdcarray<rdcstr> &args)
 {
   return 0;
 }

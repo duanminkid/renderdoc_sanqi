@@ -736,7 +736,7 @@ struct AndroidRemoteServer : public RemoteServer
       for(const rdcstr &line : lines)
       {
         // hide our own internal packages
-        if(strstr(line.c_str(), "package:org.renderdoc."))
+        if(line.beginsWith("package:" RENDERDOC_ANDROID_PACKAGE_BASE "."))
           continue;
 
         if(!strncmp(line.c_str(), "package:", 8))
@@ -1123,8 +1123,9 @@ struct AndroidController : public IDeviceProtocolHandler
   ResultDetails StartRemoteServer(const rdcstr &URL) override
   {
     RDResult result = ResultCode::Succeeded;
+    bool serverStarted = false;
 
-    Invoke([this, &result, URL]() {
+    Invoke([this, &result, &serverStarted, URL]() {
       rdcstr deviceID = GetDeviceID(URL);
 
       auto it = devices.find(deviceID);
@@ -1254,12 +1255,26 @@ struct AndroidController : public IDeviceProtocolHandler
       // launch the last ABI, as the 64-bit version where possible, or 32-bit version where not.
       // Captures are portable across bitness and in some cases a 64-bit capture can't replay on a
       // 32-bit remote server.
-      Android::adbExecCommand(
-          deviceID, "shell am start -n " + package + "/.Loader -e sanqicapture remoteserver");
+      Process::ProcessResult launch = Android::adbExecCommand(
+          deviceID, "shell am start -n " + package + "/.Loader -e "
+                        RENDERDOC_ANDROID_INTENT_EXTRA " remoteserver");
+      rdcstr launchError = Android::GetADBActivityLaunchError(launch);
+      if(!launchError.empty())
+      {
+        SET_ERROR_RESULT(result, ResultCode::InternalError,
+                         "Couldn't start Android capture server '%s/.Loader'. adb reported:\n%s",
+                         package.c_str(), launchError.c_str());
+        return;
+      }
+
+      serverStarted = true;
     });
 
-    // allow the package to start and begin listening before we return
-    Threading::Sleep(8000);
+    // Allow a successfully launched package to start listening before returning. Known launch
+    // failures return immediately with the adb diagnostic instead of looking like a connection
+    // timeout.
+    if(serverStarted)
+      Threading::Sleep(8000);
 
     return result;
   }
@@ -1368,6 +1383,15 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
     if(activityName.empty() || activityName == "#DefaultActivity")
       activityName = Android::GetDefaultActivityForPackage(m_deviceID, packageName);
 
+    if(activityName.empty())
+    {
+      result = RDResult(ResultCode::InjectionFailed,
+                        "Couldn't resolve a launchable activity for Android package '" +
+                            packageName + "'.");
+      ident = 0;
+      return;
+    }
+
     rdcstr processName = Android::GetProcessNameForActivity(m_deviceID, packageName, activityName);
 
     if(Android_Debug_ProcessLaunch())
@@ -1475,6 +1499,7 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
       }
     }
 
+    Process::ProcessResult launch;
     if(hookWithJDWP)
     {
       RDCLOG("Using pre-Android 10 Vulkan layering and JDWP injection");
@@ -1552,7 +1577,7 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
       RDCLOG("Setting up to launch the application as a debugger to inject.");
 
       // start the activity in this package with debugging enabled and force-stop after starting
-      Android::adbExecCommand(
+      launch = Android::adbExecCommand(
           m_deviceID, StringFormat::Fmt("shell am start -S -D -n %s/%s %s", packageName.c_str(),
                                         activityName.c_str(), intentArgs.c_str()));
     }
@@ -1561,12 +1586,23 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
       RDCLOG("Launching APK with no debugger or direct injection.");
 
       // start the activity in this package with debugging enabled and force-stop after starting
-      Android::adbExecCommand(
+      launch = Android::adbExecCommand(
           m_deviceID, StringFormat::Fmt("shell am start -S -n %s/%s %s", packageName.c_str(),
                                         activityName.c_str(), intentArgs.c_str()));
 
       // don't connect JDWP
       jdwpPort = 0;
+    }
+
+    rdcstr launchError = Android::GetADBActivityLaunchError(launch);
+    if(!launchError.empty())
+    {
+      result = RDResult(
+          ResultCode::InjectionFailed,
+          StringFormat::Fmt("Couldn't launch Android activity '%s/%s'. adb reported:\n%s",
+                            packageName.c_str(), activityName.c_str(), launchError.c_str()));
+      ident = 0;
+      return;
     }
 
     // adb shell ps | grep $PACKAGE | awk '{print $2}')
@@ -1619,9 +1655,15 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
       }
     }
 
-    result = RDResult(ResultCode::InjectionFailed, "Timeout was reached waiting for app to start.");
-
     uint32_t elapsed = 0, timeout = 1000 * RDCMAX(5U, Android_MaxConnectTimeout());
+    rdcstr timeoutMessage = StringFormat::Fmt(
+        "Timed out after %u seconds waiting for Android package '%s' to open a capture connection. "
+        "The process started, but the graphics capture layer did not connect.",
+        timeout / 1000, packageName.c_str());
+    if(!info.empty())
+      timeoutMessage += "\n\nAdditional information:\n" + info;
+    result = RDResult(ResultCode::InjectionFailed, timeoutMessage);
+
     while(elapsed < timeout)
     {
       // Check if the target app has started yet and we can connect to it.

@@ -8,7 +8,7 @@ pushd "${REPO_ROOT}"
 # Build 32-bit Release
 MSYS2_ARG_CONV_EXCL="*" msbuild.exe /nologo /m /fl4 /flp4':Verbosity=minimal;Encoding=ASCII;logfile=dist/build32.log' renderdoc.sln /t:Rebuild /p:'Configuration=Release;Platform=x86'
 
-if [ ! -f ./Win32/Release/system_load.dll ] || [ ! -f ./Win32/Release/qrenderdoc.exe ] || [ ! -f ./Win32/Release/kidcmd.exe ] ; then
+if [ ! -f ./Win32/Release/system_load.dll ] || [ ! -f ./Win32/Release/qsanqiInjectTool.exe ] || [ ! -f ./Win32/Release/sanqicapture.exe ] ; then
 	echo "Failed to build 32-bit release mode.";
 	exit 1;
 fi
@@ -16,7 +16,7 @@ fi
 # Build 64-bit Release
 MSYS2_ARG_CONV_EXCL="*" msbuild.exe /nologo /m /fl4 /flp4':Verbosity=minimal;Encoding=ASCII;logfile=dist/build64.log' renderdoc.sln /t:Rebuild /p:'Configuration=Release;Platform=x64'
 
-if [ ! -f ./x64/Release/system_load.dll ] || [ ! -f ./x64/Release/qrenderdoc.exe ] || [ ! -f ./x64/Release/kidcmd.exe ] ; then
+if [ ! -f ./x64/Release/system_load.dll ] || [ ! -f ./x64/Release/qsanqiInjectTool.exe ] || [ ! -f ./x64/Release/sanqicapture.exe ] || [ ! -f ./x64/Release/stealth/system_load.dll ] ; then
 	echo "Failed to build 64-bit release mode.";
 	exit 1;
 fi

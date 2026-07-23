@@ -80,6 +80,7 @@
 #define RENDERDOC_EXPORT_API __declspec(dllexport)
 #define RENDERDOC_IMPORT_API __declspec(dllimport)
 #define RENDERDOC_CC __cdecl
+#define RENDERDOC_NOINLINE __declspec(noinline)
 
 #elif defined(RENDERDOC_PLATFORM_LINUX) || defined(RENDERDOC_PLATFORM_APPLE) || \
     defined(RENDERDOC_PLATFORM_ANDROID) || defined(RENDERDOC_PLATFORM_SWITCH)
@@ -88,6 +89,7 @@
 #define RENDERDOC_IMPORT_API
 
 #define RENDERDOC_CC
+#define RENDERDOC_NOINLINE __attribute__((noinline))
 
 #else
 

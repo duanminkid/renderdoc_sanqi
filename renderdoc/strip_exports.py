@@ -77,7 +77,7 @@ replacements = [
 
     # Android package name full (26 bytes)
     (b'org.renderdoc.renderdoccmd',
-     b'com.sanqi.capture.sqcaptur'),
+     b'com.sqcap.capture.sqcaptur'),
 
     # Android path prefix (23 bytes)
     (b'share/renderdoc/plugins',

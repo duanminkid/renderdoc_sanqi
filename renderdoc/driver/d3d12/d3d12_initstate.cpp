@@ -183,7 +183,11 @@ bool D3D12ResourceManager::Prepare_InitialState(ID3D12DeviceChild *res)
         }
         else
         {
-          RDCERR("Couldn't map directly readback buffer: HRESULT: %s", ToStr(hr).c_str());
+          RDResult error;
+          SET_ERROR_RESULT(error, ResultCode::OutOfMemory,
+                           "Couldn't map directly readback buffer: HRESULT: %s", ToStr(hr).c_str());
+          m_Device->ReportFatalError(error);
+          return false;
         }
 
         SetInitialContents(GetResID(res), D3D12InitialContents(buffer, size));
@@ -234,7 +238,11 @@ bool D3D12ResourceManager::Prepare_InitialState(ID3D12DeviceChild *res)
       }
       else
       {
-        RDCERR("Couldn't create readback buffer: HRESULT: %s", ToStr(hr).c_str());
+        RDResult error;
+        SET_ERROR_RESULT(error, ResultCode::OutOfMemory,
+                         "Couldn't create readback buffer: HRESULT: %s", ToStr(hr).c_str());
+        m_Device->ReportFatalError(error);
+        return false;
       }
 
       // transition back to whatever it was before
@@ -426,7 +434,11 @@ bool D3D12ResourceManager::Prepare_InitialState(ID3D12DeviceChild *res)
       }
       else
       {
-        RDCERR("Couldn't create readback buffer: HRESULT: %s", ToStr(hr).c_str());
+        RDResult error;
+        SET_ERROR_RESULT(error, ResultCode::OutOfMemory,
+                         "Couldn't create readback buffer: HRESULT: %s", ToStr(hr).c_str());
+        m_Device->ReportFatalError(error);
+        return false;
       }
 
       // If we're not a sparse single-sampled texture, we copy the whole resource with all
@@ -517,7 +529,9 @@ bool D3D12ResourceManager::Prepare_InitialState(ID3D12DeviceChild *res)
 
         if(!serSize)
         {
-          RDCERR("Couldn't map AS query buffer");
+          RDResult error;
+          SET_ERROR_RESULT(error, ResultCode::OutOfMemory, "Couldn't map AS query buffer");
+          m_Device->ReportFatalError(error);
           return false;
         }
 
@@ -535,7 +549,10 @@ bool D3D12ResourceManager::Prepare_InitialState(ID3D12DeviceChild *res)
 
       if(FAILED(hr))
       {
-        RDCERR("Couldn't create serialisation buffer: HRESULT: %s", ToStr(hr).c_str());
+        RDResult error;
+        SET_ERROR_RESULT(error, ResultCode::OutOfMemory,
+                         "Couldn't create serialisation buffer: HRESULT: %s", ToStr(hr).c_str());
+        m_Device->ReportFatalError(error);
         return false;
       }
 
@@ -562,7 +579,11 @@ bool D3D12ResourceManager::Prepare_InitialState(ID3D12DeviceChild *res)
       }
       else
       {
-        RDCERR("Couldn't create readback buffer: HRESULT: %s", ToStr(hr).c_str());
+        RDResult error;
+        SET_ERROR_RESULT(error, ResultCode::OutOfMemory,
+                         "Couldn't create readback buffer: HRESULT: %s", ToStr(hr).c_str());
+        m_Device->ReportFatalError(error);
+        return false;
       }
 
       initContents.resource = copyDst;
@@ -1749,7 +1770,7 @@ void D3D12ResourceManager::Create_InitialState(ResourceId id, ID3D12DeviceChild 
       // if destination is on the upload heap, it's impossible to copy via the device,
       // so we have to CPU copy. To save time and make a more optimal copy, we just keep the data
       // CPU-side
-      D3D12InitialContents initContents(D3D12InitialContents::Copy, Resource_Resource);
+      D3D12InitialContents initContents(D3D12InitialContents::Copy, type);
       uint64_t size = RDCMAX(resDesc.Width, 64ULL);
       initContents.srcData = AllocAlignedBuffer(size);
       memset(initContents.srcData, 0, (size_t)size);

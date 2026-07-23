@@ -47,6 +47,11 @@ void LibraryHooks::RegisterHooks(LibraryHookRegistration registration)
        lib->m_Type != LibraryHook::Type::D3D11 && lib->m_Type != LibraryHook::Type::DXGI)
       continue;
 
+    if(registration == LibraryHookRegistration::D3D12DXGIAndIHV &&
+       lib->m_Type != LibraryHook::Type::D3D12 && lib->m_Type != LibraryHook::Type::DXGI &&
+       lib->m_Type != LibraryHook::Type::IHV)
+      continue;
+
     lib->RegisterHooks();
   }
 

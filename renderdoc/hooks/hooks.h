@@ -142,6 +142,7 @@ enum class LibraryHookRegistration
 {
   All,
   D3D11AndDXGI,
+  D3D12DXGIAndIHV,
 };
 
 // this singleton allows you to compile in code that defines a hook for a given library
@@ -182,6 +183,15 @@ public:
   // Returns true when the current registration pass patched at least one import entry.
   static bool HooksApplied();
 
+  // Returns true only after the platform hook registration transaction completed successfully.
+  static bool HookRegistrationSucceeded();
+
+  // Returns true only while the DXGI MinHook transaction is committed and its trampolines exist.
+  static bool DXGIInlineHooksActive();
+
+  // Returns true once DXGI trampolines are ready for calls that race with MinHook enablement.
+  static bool DXGIInlineHooksDispatchReady();
+
   // detect if an identifier is present in the current process - used as a marker to indicate
   // replay-type programs.
   static bool Detect(const char *identifier);
@@ -198,7 +208,9 @@ struct LibraryHook
   {
     Other,
     D3D11,
+    D3D12,
     DXGI,
+    IHV,
   };
 
   explicit LibraryHook(Type type = Type::Other);

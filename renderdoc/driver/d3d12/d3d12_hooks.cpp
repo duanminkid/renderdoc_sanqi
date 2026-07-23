@@ -548,6 +548,8 @@ public:
 class D3D12Hook : LibraryHook
 {
 public:
+  D3D12Hook() : LibraryHook(LibraryHook::Type::D3D12) {}
+
   void RegisterHooks()
   {
     RDCLOG("Registering D3D12 hooks");

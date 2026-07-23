@@ -27,6 +27,7 @@
 #include <windows.h>
 
 #include <Psapi.h>
+#include <shellapi.h>
 #include <Shlwapi.h>
 #include <tchar.h>
 #include <tlhelp32.h>
@@ -301,8 +302,11 @@ bool Process::IsInjectionBlockedProcessText(const rdcstr &text)
       "steamwebhelper.exe;"
       "steamservice.exe;"
       "UnityCrashHandler64.exe;"
+      "CrashReportClient.exe;"
       "crashreport.exe;"
       "upload_crash.exe;"
+      "EasyAntiCheat;"
+      "BEService.exe;"
       "APM4webCrashR.exe;"
       "ZFGameBrowser.exe;"
       "WerFault.exe";
@@ -535,7 +539,7 @@ bool InjectDLL(HANDLE hProcess, rdcwstr libName)
   return ret;
 }
 
-uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName)
+uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName, const wchar_t *modulePath = NULL)
 {
   HANDLE hModuleSnap = INVALID_HANDLE_VALUE;
 
@@ -601,7 +605,9 @@ uintptr_t FindRemoteDLL(DWORD pid, rdcstr libName)
 
     numModules++;
 
-    if(wcsstr(modnameLower, wlibName.c_str()) == modnameLower)
+    const bool nameMatches = wcsstr(modnameLower, wlibName.c_str()) == modnameLower;
+    const bool pathMatches = modulePath == NULL || _wcsicmp(me32.szExePath, modulePath) == 0;
+    if(nameMatches && pathMatches)
     {
       ret = (uintptr_t)me32.modBaseAddr;
     }
@@ -1029,6 +1035,10 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
                  .c_str());
   SqcDiagLogEnvState("inject", injectEnv);
 
+  const bool directSystemLoad =
+      yuanShenTarget && SqcLaunchEnvEnabled(injectEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD");
+  const bool steamCapture = SqcLaunchEnvEnabled(injectEnv, "SQC_STEAM_GAME_CAPTURE");
+
   if(yuanShenBootstrapDeferred)
   {
     wchar_t *slash = wcsrchr(renderdocPath, L'\\');
@@ -1429,12 +1439,51 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
     return {ResultCode::Succeeded, (uint32_t)exitCode};
   }
 
+  if(directSystemLoad)
+  {
+    wchar_t *filename = wcsrchr(renderdocPath, L'\\');
+    errno_t appendResult = EINVAL;
+    if(filename != NULL)
+    {
+      filename[1] = 0;
+      appendResult = wcscat_s(renderdocPath, L"stealth\\system_load.dll");
+    }
+
+    DWORD payloadAttributes =
+        appendResult == 0 ? GetFileAttributesW(renderdocPath) : INVALID_FILE_ATTRIBUTES;
+    DWORD payloadError = ERROR_SUCCESS;
+    if(filename == NULL)
+      payloadError = ERROR_INVALID_NAME;
+    else if(appendResult != 0)
+      payloadError = ERROR_INSUFFICIENT_BUFFER;
+    else if(payloadAttributes == INVALID_FILE_ATTRIBUTES)
+      payloadError = GetLastError();
+    else if((payloadAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+      payloadError = ERROR_DIRECTORY;
+
+    if(payloadError != ERROR_SUCCESS)
+    {
+      RDResult result;
+      SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                       "YuanShen stealth payload '%s' is missing or invalid (err %u).",
+                       StringFormat::Wide2UTF8(renderdocPath).c_str(), payloadError);
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] YuanShen stealth payload invalid path='%s' err=%u\r\n",
+                     StringFormat::Wide2UTF8(renderdocPath).c_str(), payloadError)
+                     .c_str());
+      CloseHandle(hProcess);
+      return {result, 0};
+    }
+
+    SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] YuanShen stealth payload='%s'\r\n",
+                                 StringFormat::Wide2UTF8(renderdocPath).c_str())
+                   .c_str());
+  }
+
   const char *rdoc_dll = STRINGIZE(RDOC_BASE_NAME);
 
   rdcpair<RDResult, uint32_t> result = {ResultCode::Succeeded, 0};
 
-  const bool directSystemLoad =
-      yuanShenTarget && SqcLaunchEnvEnabled(injectEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD");
   HANDLE directInjectionCompleteEvent = NULL;
   HANDLE directHooksReadyEvent = NULL;
   HANDLE directHooksFailedEvent = NULL;
@@ -1482,7 +1531,8 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
   if(directSystemLoad)
   {
-    uintptr_t remoteModule = FindRemoteDLL(pid, STRINGIZE(RDOC_BASE_NAME) ".dll");
+    uintptr_t remoteModule =
+        FindRemoteDLL(pid, STRINGIZE(RDOC_BASE_NAME) ".dll", renderdocPath);
     const rdcstr encodedOptions = opts.EncodeAsString();
     bool directConfigOK = remoteModule != 0;
 
@@ -1633,7 +1683,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
         failedFunc = "INTERNAL_SetCaptureOptions";
     }
 
-    if(setupOK)
+    if(setupOK && !steamCapture)
     {
       result.second = ReadTargetIdentFile(pid);
       if(result.second == 0)
@@ -1684,6 +1734,30 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
       }
     }
 
+    if(setupOK && steamCapture)
+    {
+      uint32_t hooksStarted = 0;
+      setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_StartSteamHooks", &hooksStarted,
+                                   sizeof(hooksStarted));
+      if(!setupOK || hooksStarted == 0)
+      {
+        setupOK = false;
+        failedFunc = "INTERNAL_StartSteamHooks";
+      }
+    }
+
+    if(setupOK && steamCapture)
+    {
+      result.second = ReadTargetIdentFile(pid);
+      if(result.second == 0)
+      {
+        setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_GetTargetControlIdent",
+                                     &result.second, sizeof(result.second));
+        if(!setupOK)
+          failedFunc = "INTERNAL_GetTargetControlIdent";
+      }
+    }
+
     if(!setupOK)
     {
       uint32_t ident = ReadTargetIdentFile(pid);
@@ -1693,7 +1767,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
                      ident)
                      .c_str());
 
-      if(captureTemplateConfigured && ident != 0)
+      if(!steamCapture && captureTemplateConfigured && ident != 0)
       {
         result.first = ResultCode::Succeeded;
         result.second = ident;
@@ -1995,36 +2069,44 @@ static DWORD FindMatchingProcessByPath(const rdcstr &targetPath, DWORD launchedP
       bool blocked = Process::IsInjectionBlockedProcess(pid);
       bool basenameMatch = strlower(get_basename(displayPath)) == targetBase;
       bool pathMatch = havePath && NormaliseWinProcessPath(processPath) == target;
+      bool directChildMatch = pe32.th32ParentProcessID == launchedPid && basenameMatch;
 
       if(newlySeen)
       {
         rdcstr parentPath;
         GetProcessImagePath(pe32.th32ParentProcessID, parentPath);
-        SqcDiagLog(StringFormat::Fmt(
-                       "[SQC-DIAG] RelaunchWait candidate pid=%u parent=%u exe='%s' path='%s' parentPath='%s' blocked=%u basenameMatch=%u pathMatch=%u\r\n",
-                       pid, pe32.th32ParentProcessID,
-                       StringFormat::Wide2UTF8(pe32.szExeFile).c_str(), displayPath.c_str(),
-                       parentPath.c_str(), blocked ? 1 : 0, basenameMatch ? 1 : 0,
-                       pathMatch ? 1 : 0)
-                       .c_str());
+        SqcDiagLog(
+            StringFormat::Fmt(
+                "[SQC-DIAG] RelaunchWait candidate pid=%u parent=%u exe='%s' path='%s' "
+                "parentPath='%s' blocked=%u basenameMatch=%u pathMatch=%u directChildMatch=%u\r\n",
+                pid, pe32.th32ParentProcessID, StringFormat::Wide2UTF8(pe32.szExeFile).c_str(),
+                displayPath.c_str(), parentPath.c_str(), blocked ? 1 : 0, basenameMatch ? 1 : 0,
+                pathMatch ? 1 : 0, directChildMatch ? 1 : 0)
+                .c_str());
       }
 
       if(!havePath || blocked)
         continue;
 
-      rdcstr normalisedPath = NormaliseWinProcessPath(processPath);
-      if(normalisedPath == target)
+      // Existing same-path processes were captured in seenPids before the wait began and must not
+      // be selected. A direct child is safe even if it won the race with the initial snapshot.
+      if((newlySeen && pathMatch) || directChildMatch)
       {
+        SqcDiagLog(StringFormat::Fmt(
+                       "[SQC-DIAG] RelaunchWait accepted pid=%u reason=%s path='%s'\r\n", pid,
+                       directChildMatch ? "direct-child-basename" : "new-path",
+                       processPath.c_str())
+                       .c_str());
         matchedPid = pid;
         break;
       }
 
-      if(strlower(get_basename(processPath)) == targetBase)
+      if(newlySeen && basenameMatch)
       {
-        SqcDiagLog(StringFormat::Fmt(
-                       "[SQC-DIAG] RelaunchWait saw basename match pid=%u path='%s'\r\n", pid,
-                       processPath.c_str())
-                       .c_str());
+        SqcDiagLog(
+            StringFormat::Fmt("[SQC-DIAG] RelaunchWait saw basename match pid=%u path='%s'\r\n",
+                              pid, processPath.c_str())
+                .c_str());
       }
     } while(Process32Next(snapshot, &pe32));
   }
@@ -2082,10 +2164,363 @@ static rdcpair<RDResult, uint32_t> WaitForRelaunchedProcessAndInject(
   return {result, 0};
 }
 
-static bool IsLikelySteamLaunchTarget(const rdcstr &app)
+struct SteamLaunchInfo
 {
-  rdcstr normalised = NormaliseWinProcessPath(app);
-  return normalised.contains("/steamapps/") || normalised.contains("\\steamapps\\");
+  rdcstr appId;
+  rdcstr gameRoot;
+  rdcstr targetApp;
+};
+
+static HANDLE CreateSteamCaptureMarker(DWORD pid)
+{
+  wchar_t eventName[64] = {};
+  swprintf_s(eventName, L"Local\\SQC_SteamCapture_%u", pid);
+  SetLastError(ERROR_SUCCESS);
+  HANDLE marker = CreateEventW(NULL, TRUE, FALSE, eventName);
+  if(marker != NULL && GetLastError() == ERROR_ALREADY_EXISTS)
+  {
+    CloseHandle(marker);
+    SetLastError(ERROR_ALREADY_EXISTS);
+    return NULL;
+  }
+
+  return marker;
+}
+
+static bool IsSteamManagedPath(const rdcstr &app)
+{
+  return NormaliseWinProcessPath(app).contains("/steamapps/common/");
+}
+
+static bool PathIsInsideDirectory(const rdcstr &path, const rdcstr &directory)
+{
+  rdcstr normalisedPath = NormaliseWinProcessPath(path);
+  rdcstr normalisedDirectory = NormaliseWinProcessPath(directory);
+
+  while(normalisedDirectory.length() > 1 && normalisedDirectory.back() == '/')
+    normalisedDirectory.pop_back();
+
+  if(normalisedPath == normalisedDirectory)
+    return true;
+
+  normalisedDirectory += '/';
+  return normalisedPath.beginsWith(normalisedDirectory);
+}
+
+static bool ParseSteamManifestValue(const rdcstr &contents, const rdcstr &key, rdcstr &value)
+{
+  const rdcstr lowered = strlower(contents);
+  const rdcstr needle = "\"" + strlower(key) + "\"";
+  int32_t keyOffset = lowered.find(needle);
+  if(keyOffset < 0)
+    return false;
+
+  int32_t valueStart = lowered.find("\"", keyOffset + (int32_t)needle.length());
+  if(valueStart < 0)
+    return false;
+
+  int32_t valueEnd = lowered.find("\"", valueStart + 1);
+  if(valueEnd <= valueStart + 1)
+    return false;
+
+  value = contents.substr(valueStart + 1, valueEnd - valueStart - 1);
+  return true;
+}
+
+static bool IsNumericSteamAppId(const rdcstr &appId)
+{
+  if(appId.empty())
+    return false;
+
+  for(char c : appId)
+    if(c < '0' || c > '9')
+      return false;
+
+  return true;
+}
+
+static rdcstr ResolveSteamCaptureTarget(const rdcstr &gameRoot, const rdcstr &selectedApp)
+{
+  const rdcstr normalisedRoot = NormaliseWinProcessPath(gameRoot);
+  const rdcstr normalisedSelected = NormaliseWinProcessPath(selectedApp);
+
+  // A root-level executable is often only a Steam bootstrapper. If the game contains a larger
+  // executable with the same name below the install root, prefer that process for injection while
+  // still asking Steam to perform the launch normally.
+  if(NormaliseWinProcessPath(get_dirname(normalisedSelected)) != normalisedRoot)
+    return normalisedSelected;
+
+  const rdcstr selectedBase = strlower(get_basename(normalisedSelected));
+  rdcstr preferred = normalisedSelected;
+  uint64_t preferredSize = FileIO::GetFileSize(normalisedSelected);
+
+  rdcarray<rdcpair<rdcstr, uint32_t>> pendingDirectories;
+  pendingDirectories.push_back({normalisedRoot, 0});
+  size_t directoryIndex = 0;
+  uint32_t visitedEntries = 0;
+
+  // ponytail: Bound the fallback scan so a malformed or unusually large install tree cannot stall
+  // the capture UI. Replace this heuristic if Steam exposes reliable launch executable metadata.
+  while(directoryIndex < pendingDirectories.size() && visitedEntries < 4096)
+  {
+    const rdcstr directory = pendingDirectories[directoryIndex].first;
+    const uint32_t depth = pendingDirectories[directoryIndex].second;
+    directoryIndex++;
+
+    rdcarray<PathEntry> entries;
+    FileIO::GetFilesInDirectory(directory, entries);
+    for(const PathEntry &entry : entries)
+    {
+      if(++visitedEntries >= 4096)
+        break;
+
+      const rdcstr candidate = directory + "/" + entry.filename;
+      if(entry.flags & PathProperty::Directory)
+      {
+        if(depth < 8 && !(entry.flags & PathProperty::Hidden) && pendingDirectories.size() < 256)
+          pendingDirectories.push_back({candidate, depth + 1});
+        continue;
+      }
+
+      if(!(entry.flags & PathProperty::Executable) || strlower(entry.filename) != selectedBase)
+        continue;
+
+      const rdcstr normalisedCandidate = NormaliseWinProcessPath(candidate);
+      if(normalisedCandidate != normalisedSelected && entry.size > preferredSize)
+      {
+        preferred = normalisedCandidate;
+        preferredSize = entry.size;
+      }
+    }
+  }
+
+  if(preferred != normalisedSelected)
+  {
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] Steam bootstrap target redirected selected='%s' target='%s' size=%llu\r\n",
+                   normalisedSelected.c_str(), preferred.c_str(),
+                   (unsigned long long)preferredSize)
+                   .c_str());
+  }
+
+  return preferred;
+}
+
+static bool ResolveSteamLaunch(const rdcstr &app, SteamLaunchInfo &launch)
+{
+#if ENABLED(RDOC_DEVEL)
+  static bool parserChecked = false;
+  if(!parserChecked)
+  {
+    parserChecked = true;
+    const rdcstr sample = "\"AppState\" { \"appid\" \"4480000\" \"installdir\" \"Last Breath Demo\" }";
+    rdcstr sampleAppId;
+    rdcstr sampleInstallDir;
+    RDCASSERT(ParseSteamManifestValue(sample, "appid", sampleAppId) &&
+              sampleAppId == "4480000");
+    RDCASSERT(ParseSteamManifestValue(sample, "installdir", sampleInstallDir) &&
+              sampleInstallDir == "Last Breath Demo");
+  }
+#endif
+
+  const rdcstr normalisedApp = NormaliseWinProcessPath(app);
+  const rdcstr steamCommonMarker = "/steamapps/common/";
+  int32_t commonOffset = normalisedApp.find(steamCommonMarker);
+  if(commonOffset < 0)
+    return false;
+
+  const rdcstr steamApps = normalisedApp.substr(0, commonOffset) + "/steamapps";
+  rdcwstr manifestPattern = StringFormat::UTF82Wide(steamApps + "/appmanifest_*.acf");
+  WIN32_FIND_DATAW manifestData = {};
+  HANDLE manifests = FindFirstFileW(manifestPattern.c_str(), &manifestData);
+  if(manifests == INVALID_HANDLE_VALUE)
+    return false;
+
+  do
+  {
+    if(manifestData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+      continue;
+
+    rdcstr manifestPath = steamApps + "/" + StringFormat::Wide2UTF8(manifestData.cFileName);
+    rdcstr manifestContents;
+    rdcstr appId;
+    rdcstr installDir;
+    if(!FileIO::ReadAll(manifestPath, manifestContents) ||
+       !ParseSteamManifestValue(manifestContents, "appid", appId) ||
+       !ParseSteamManifestValue(manifestContents, "installdir", installDir) ||
+       !IsNumericSteamAppId(appId))
+    {
+      continue;
+    }
+
+    const rdcstr gameRoot = steamApps + "/common/" + installDir;
+    if(!PathIsInsideDirectory(normalisedApp, gameRoot))
+      continue;
+
+    launch.appId = appId;
+    launch.gameRoot = NormaliseWinProcessPath(gameRoot);
+    launch.targetApp = ResolveSteamCaptureTarget(launch.gameRoot, normalisedApp);
+    FindClose(manifests);
+
+    SqcDiagLog(StringFormat::Fmt(
+                   "[SQC-DIAG] Steam launch resolved appid=%s root='%s' target='%s'\r\n",
+                   launch.appId.c_str(), launch.gameRoot.c_str(), launch.targetApp.c_str())
+                   .c_str());
+    return true;
+  } while(FindNextFileW(manifests, &manifestData));
+
+  FindClose(manifests);
+  return false;
+}
+
+static DWORD FindSteamGameCandidate(const SteamLaunchInfo &launch,
+                                    const rdcarray<DWORD> &baselinePids,
+                                    const rdcarray<DWORD> &attemptedPids, bool allowRootFallback)
+{
+  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if(snapshot == INVALID_HANDLE_VALUE)
+    return 0;
+
+  PROCESSENTRY32 pe32 = {};
+  pe32.dwSize = sizeof(PROCESSENTRY32);
+  DWORD fallbackPid = 0;
+
+  if(Process32First(snapshot, &pe32))
+  {
+    do
+    {
+      DWORD pid = pe32.th32ProcessID;
+      if(pid == 0 || pid == 4 || pid == GetCurrentProcessId() || ContainsPID(baselinePids, pid) ||
+         ContainsPID(attemptedPids, pid) || Process::IsInjectionBlockedProcess(pid))
+      {
+        continue;
+      }
+
+      rdcstr processPath;
+      if(!GetProcessImagePath(pid, processPath) ||
+         !PathIsInsideDirectory(processPath, launch.gameRoot))
+      {
+        continue;
+      }
+
+      const bool exactTarget = NormaliseWinProcessPath(processPath) == launch.targetApp;
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] Steam candidate pid=%u path='%s' exact=%u fallback=%u\r\n", pid,
+                     processPath.c_str(), exactTarget ? 1 : 0, allowRootFallback ? 1 : 0)
+                     .c_str());
+
+      if(exactTarget)
+      {
+        CloseHandle(snapshot);
+        return pid;
+      }
+
+      if(allowRootFallback && fallbackPid == 0)
+        fallbackPid = pid;
+    } while(Process32Next(snapshot, &pe32));
+  }
+
+  CloseHandle(snapshot);
+  return fallbackPid;
+}
+
+static rdcpair<RDResult, uint32_t> LaunchSteamAndInject(
+    const SteamLaunchInfo &launch, const rdcstr &cmdLine,
+    const rdcarray<EnvironmentModification> &env, const rdcstr &capturefile,
+    const CaptureOptions &opts, bool waitForExit)
+{
+  RDResult result = ResultCode::Succeeded;
+  if(!cmdLine.trimmed().empty())
+  {
+    SET_ERROR_RESULT(result, ResultCode::InvalidParameter,
+                     "Steam games must use launch arguments configured in Steam. "
+                     "The capture dialog command line must be empty.");
+    return {result, 0};
+  }
+
+  rdcarray<DWORD> baselinePids;
+  CaptureExistingProcessPIDs(baselinePids);
+
+  const rdcstr uri = "steam://rungameid/" + launch.appId;
+  rdcwstr wideUri = StringFormat::UTF82Wide(uri);
+  HINSTANCE opened = ShellExecuteW(NULL, L"open", wideUri.c_str(), NULL, NULL, SW_SHOWNORMAL);
+  if((INT_PTR)opened <= 32)
+  {
+    SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                     "Failed to ask Steam to launch app %s (ShellExecute result %u).",
+                     launch.appId.c_str(), (uint32_t)(INT_PTR)opened);
+    return {result, 0};
+  }
+
+  SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] Steam URI launched uri='%s'\r\n", uri.c_str()).c_str());
+
+  const DWORD start = GetTickCount();
+  const DWORD exactTargetGraceMS = 10000;
+  const DWORD launchTimeoutMS = 120000;
+  rdcarray<DWORD> attemptedPids;
+  rdcstr lastFailure;
+  rdcarray<EnvironmentModification> steamEnv = env;
+  AddEnvMod(steamEnv, "SQC_STEAM_GAME_CAPTURE", "1");
+
+  while(GetTickCount() - start < launchTimeoutMS)
+  {
+    const bool allowRootFallback = GetTickCount() - start >= exactTargetGraceMS;
+    DWORD pid = FindSteamGameCandidate(launch, baselinePids, attemptedPids, allowRootFallback);
+    if(pid != 0)
+    {
+      attemptedPids.push_back(pid);
+      HANDLE steamCaptureMarker = CreateSteamCaptureMarker(pid);
+      if(steamCaptureMarker == NULL)
+      {
+        SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                         "Failed to create the Steam capture marker for process %u (err %u).", pid,
+                         GetLastError());
+        return {result, 0};
+      }
+
+      SqcDiagLog(StringFormat::Fmt("[SQC-DIAG] Steam capture marker created pid=%u\r\n", pid)
+                     .c_str());
+      rdcpair<RDResult, uint32_t> injected =
+          Process::InjectIntoProcess(pid, steamEnv, capturefile, opts, waitForExit);
+      const DWORD markerState = WaitForSingleObject(steamCaptureMarker, 0);
+      CloseHandle(steamCaptureMarker);
+
+      if(injected.first == ResultCode::Succeeded && markerState != WAIT_OBJECT_0)
+      {
+        SET_ERROR_RESULT(injected.first, ResultCode::InjectionFailed,
+                         "The injected process %u did not acknowledge its Steam capture marker.",
+                         pid);
+        injected.second = 0;
+      }
+
+      SqcDiagLog(StringFormat::Fmt(
+                     "[SQC-DIAG] Steam candidate inject pid=%u code=%d ident=%u msg='%s'\r\n", pid,
+                     (int)injected.first.code, injected.second, injected.first.message.c_str())
+                     .c_str());
+
+      if(injected.first == ResultCode::Succeeded && injected.second != 0)
+        return injected;
+
+      lastFailure = injected.first.message;
+    }
+
+    Threading::Sleep(25);
+  }
+
+  if(lastFailure.empty())
+  {
+    SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                     "Steam app %s launched, but no new process appeared under '%s'.",
+                     launch.appId.c_str(), launch.gameRoot.c_str());
+  }
+  else
+  {
+    SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                     "Steam app %s launched, but all scoped injection attempts failed: %s",
+                     launch.appId.c_str(), lastFailure.c_str());
+  }
+
+  return {result, 0};
 }
 
 rdcpair<RDResult, uint32_t> Process::LaunchWithD3D11Proxy(
@@ -2345,6 +2780,21 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
   if(WantsD3D11Proxy(env))
     return LaunchWithD3D11Proxy(app, workingDir, cmdLine, env, capturefile, opts, waitForExit);
 
+  if(IsSteamManagedPath(app))
+  {
+    SteamLaunchInfo steamLaunch;
+    if(!ResolveSteamLaunch(app, steamLaunch))
+    {
+      RDResult result;
+      SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                       "The executable is inside a Steam library, but its appmanifest could not "
+                       "be resolved. Refusing to bypass Steam with a direct launch.");
+      return {result, 0};
+    }
+
+    return LaunchSteamAndInject(steamLaunch, cmdLine, env, capturefile, opts, waitForExit);
+  }
+
   rdcarray<EnvironmentModification> launchEnv = env;
   if(IsYuanShenLaunchTarget(app) && !SqcLaunchEnvEnabled(launchEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD"))
   {
@@ -2407,66 +2857,36 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     return {result, 0};
   }
 
-  const bool steamLaunchTarget = IsLikelySteamLaunchTarget(app);
   const bool yuanShenDirectTarget =
       IsYuanShenLaunchTarget(app) &&
       SqcLaunchEnvEnabled(launchEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD");
   bool processResumed = false;
 
-  if(steamLaunchTarget || (opts.hookIntoChildren && !yuanShenDirectTarget))
+  if(opts.hookIntoChildren && !yuanShenDirectTarget)
   {
     SqcDiagLog(StringFormat::Fmt(
-                   "[SQC-DIAG] ResumeThread before injection pid=%u steam=%u yuanshenDirect=%u hookChildren=%u\r\n",
-                   pi.dwProcessId, steamLaunchTarget ? 1 : 0, yuanShenDirectTarget ? 1 : 0,
-                   opts.hookIntoChildren ? 1 : 0)
+                   "[SQC-DIAG] ResumeThread before injection pid=%u yuanshenDirect=%u "
+                   "hookChildren=%u\r\n",
+                   pi.dwProcessId, yuanShenDirectTarget ? 1 : 0, opts.hookIntoChildren ? 1 : 0)
                    .c_str());
-    ResumeThread(pi.hThread);
-    processResumed = true;
-  }
-
-  if(steamLaunchTarget)
-  {
-    SqcDiagLog(StringFormat::Fmt(
-                   "[SQC-DIAG] RelaunchWait steam target, waiting before first-process injection pid=%u hookChildren=%u\r\n",
-                   pi.dwProcessId, opts.hookIntoChildren ? 1 : 0)
-                   .c_str());
-
-    rdcpair<RDResult, uint32_t> relaunched =
-        WaitForRelaunchedProcessAndInject(app, pi.dwProcessId, launchEnv, capturefile, opts, 30000);
-
-    if(relaunched.first == ResultCode::Succeeded && relaunched.second != 0)
+    DWORD previousSuspendCount = ResumeThread(pi.hThread);
+    if(previousSuspendCount == DWORD(-1))
     {
-      CloseHandle(pi.hProcess);
-      CloseHandle(pi.hThread);
-      return relaunched;
-    }
-
-    DWORD firstExit = WaitForSingleObject(pi.hProcess, 0);
-    if(firstExit == WAIT_TIMEOUT)
-    {
+      DWORD resumeError = GetLastError();
+      RDResult result;
+      SET_ERROR_RESULT(result, ResultCode::InjectionFailed,
+                       "Failed to resume launcher process %u (err %u).", pi.dwProcessId,
+                       resumeError);
       SqcDiagLog(StringFormat::Fmt(
-                     "[SQC-DIAG] RelaunchWait fallback first process still alive, injecting pid=%u\r\n",
-                     pi.dwProcessId)
+                     "[SQC-DIAG] ResumeThread before injection failed pid=%u err=%u\r\n",
+                     pi.dwProcessId, resumeError)
                      .c_str());
-
-      rdcpair<RDResult, uint32_t> first =
-          InjectIntoProcess(pi.dwProcessId, launchEnv, capturefile, opts, false);
-
+      TerminateProcess(pi.hProcess, resumeError);
       CloseHandle(pi.hProcess);
       CloseHandle(pi.hThread);
-      return first;
+      return {result, 0};
     }
-
-    DWORD exitCode = 0;
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-    SqcDiagLog(StringFormat::Fmt(
-                   "[SQC-DIAG] RelaunchWait no relaunch and first process exited pid=%u exitCode=%u\r\n",
-                   pi.dwProcessId, exitCode)
-                   .c_str());
-
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    return relaunched;
+    processResumed = true;
   }
 
   if(opts.hookIntoChildren && !yuanShenDirectTarget)

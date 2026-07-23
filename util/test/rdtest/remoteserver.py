@@ -104,7 +104,7 @@ class RemoteServer(ABC):
     
 class AndroidRemoteServer(RemoteServer):
     # Android app IDs for the server
-    ADRD_SERVER_APP64 = 'org.renderdoc.renderdoccmd.arm64'
+    ADRD_SERVER_APP64 = 'com.sqcap.capture.sqcaptur.arm64'
     CONNECTION_RETRY_COUNT = 3
 
     def __init__(self, device) -> None:

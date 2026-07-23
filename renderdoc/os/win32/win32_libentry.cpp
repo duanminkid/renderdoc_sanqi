@@ -36,6 +36,7 @@
 #include "win32_stealth.h"
 
 static volatile LONG SQCDeferredHooksStarted = 0;
+static volatile LONG SQCSteamHooksPending = 0;
 
 static void SQCChainLog(const char *msg)
 {
@@ -83,6 +84,19 @@ static bool SQCEnvEnabled(const char *name)
   DWORD len = GetEnvironmentVariableA(name, value, sizeof(value));
   return len > 0 && _stricmp(value, "0") != 0 && _stricmp(value, "false") != 0 &&
          _stricmp(value, "off") != 0;
+}
+
+static bool SQCSteamCaptureRequested()
+{
+  wchar_t eventName[64] = {};
+  swprintf_s(eventName, L"Local\\SQC_SteamCapture_%u", GetCurrentProcessId());
+  HANDLE marker = OpenEventW(SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE, eventName);
+  if(marker == NULL)
+    return false;
+
+  const bool signalled = SetEvent(marker) != FALSE;
+  CloseHandle(marker);
+  return signalled;
 }
 
 static rdcstr SQCGetEnvVariableUTF8(const wchar_t *name)
@@ -159,6 +173,11 @@ static BOOL add_hooks()
 
   const bool yuanShenDirectSystemLoad =
       f == "yuanshen.exe" && SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD");
+  const bool hogwartsGameCapture =
+      f == "hogwartslegacy.exe" && SQCEnvEnabled("SQC_HOGWARTS_GAME_CAPTURE");
+
+  if(hogwartsGameCapture)
+    SQCChainLog("add_hooks hogwarts D3D12/DXGI/IHV capture profile enabled");
 
   if(yuanShenDirectSystemLoad)
   {
@@ -250,9 +269,11 @@ static BOOL add_hooks()
   RDCLOG("Loading into %ls", curFile);
 
   SQCChainLog("before LibraryHooks::RegisterHooks");
-  LibraryHooks::RegisterHooks(yuanShenDirectSystemLoad
-                                  ? LibraryHookRegistration::D3D11AndDXGI
-                                  : LibraryHookRegistration::All);
+  LibraryHooks::RegisterHooks(
+      yuanShenDirectSystemLoad
+          ? LibraryHookRegistration::D3D11AndDXGI
+          : (hogwartsGameCapture ? LibraryHookRegistration::D3D12DXGIAndIHV
+                                 : LibraryHookRegistration::All));
   SQCChainLog("after LibraryHooks::RegisterHooks");
 
   if(yuanShenDirectSystemLoad &&
@@ -384,6 +405,39 @@ INTERNAL_StartYuanShenDirectHooks(const char *encodedOptions)
   return SQCStartDeferredAddHooks() ? 1 : 0;
 }
 
+extern "C" __declspec(dllexport) void __cdecl INTERNAL_StartSteamHooks(uint32_t *succeeded)
+{
+  if(succeeded == NULL)
+    return;
+
+  *succeeded = 0;
+  if(InterlockedCompareExchange(&SQCSteamHooksPending, 2, 1) != 1)
+  {
+    SQCChainLog("remote Steam hook start rejected missing marker handshake");
+    return;
+  }
+
+  if(!SQCEnvEnabled("SQC_STEAM_GAME_CAPTURE"))
+  {
+    InterlockedExchange(&SQCSteamHooksPending, -1);
+    SQCChainLog("remote Steam hook start rejected missing capture profile");
+    return;
+  }
+
+  const BOOL hooksStarted = add_hooks();
+  if(hooksStarted == TRUE && LibraryHooks::HookRegistrationSucceeded())
+  {
+    InterlockedExchange(&SQCSteamHooksPending, 3);
+    *succeeded = 1;
+    SQCChainLog("remote Steam hook start completed");
+  }
+  else
+  {
+    InterlockedExchange(&SQCSteamHooksPending, -1);
+    SQCChainLog("remote Steam hook start failed");
+  }
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
   if(ul_reason_for_call == DLL_PROCESS_ATTACH)
@@ -393,6 +447,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     GetModuleFileNameW(NULL, curFile, 512);
     CacheSelfModuleHandle();
     SQCChainLog("after CacheSelfModuleHandle");
+
+    if(SQCSteamCaptureRequested())
+    {
+      InterlockedExchange(&SQCSteamHooksPending, 1);
+      SQCChainLog("DllMain deferred hooks for Steam marker");
+      SetLastError(0);
+      SQCChainLog("DllMain returning");
+      return TRUE;
+    }
 
     if(SQCProcessNameMatches(curFile, L"YuanShen.exe") &&
        !SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD") &&

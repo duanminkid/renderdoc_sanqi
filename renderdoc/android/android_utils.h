@@ -37,6 +37,9 @@ Process::ProcessResult execScript(const rdcstr &script, const rdcstr &args,
 Process::ProcessResult execCommand(const rdcstr &exe, const rdcstr &args,
                                    const rdcstr &workDir = ".", bool silent = false);
 
+// Returns an empty string when `adb shell am start` succeeded, otherwise the actionable adb output.
+rdcstr GetADBActivityLaunchError(const Process::ProcessResult &result);
+
 enum class ToolDir
 {
   None,

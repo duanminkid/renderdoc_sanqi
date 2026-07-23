@@ -397,9 +397,9 @@ void DisplayRendererPreview(IReplayController *renderer, TextureDisplay &display
   m_DrawLock.unlock();
 }
 
-// Returns the renderdoccmd arguments passed via am start
-// Examples: am start ... -e renderdoccmd "remoteserver"
-// -e renderdoccmd "replay /sdcard/capture.rdc"
+// Returns the SqCap arguments passed via am start.
+// Examples: am start ... -e sqcaptool___ "remoteserver"
+// -e sqcaptool___ "replay /sdcard/capture.rdc"
 std::vector<std::string> getRenderdoccmdArgs()
 {
   JNIEnv *env;
@@ -415,7 +415,8 @@ std::vector<std::string> getRenderdoccmdArgs()
   jmethodID gseid =
       env->GetMethodID(icl, "getStringExtra", "(Ljava/lang/String;)Ljava/lang/String;");
 
-  jstring jsParam1 = (jstring)env->CallObjectMethod(intent, gseid, env->NewStringUTF("renderdoccmd"));
+  jstring jsParam1 =
+      (jstring)env->CallObjectMethod(intent, gseid, env->NewStringUTF("sqcaptool___"));
 
   std::vector<std::string> ret;
   if(jsParam1)    // Check if arg value found

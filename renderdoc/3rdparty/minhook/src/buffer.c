@@ -151,6 +151,9 @@ static LPVOID FindNextFreeRegion(LPVOID pAddress, LPVOID pMaxAddr, DWORD dwAlloc
 static PMEMORY_BLOCK GetMemoryBlock(LPVOID pOrigin)
 {
     PMEMORY_BLOCK pBlock;
+#if !defined(_M_X64) && !defined(__x86_64__)
+    (void)pOrigin;
+#endif
 #if defined(_M_X64) || defined(__x86_64__)
     ULONG_PTR minAddr;
     ULONG_PTR maxAddr;

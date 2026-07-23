@@ -2525,6 +2525,10 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
         rdcstr overlayText =
             SanQiCapture::Inst().GetOverlayText(RDCDriver::D3D12, devWnd, m_FrameCounter, 0);
 
+        if(m_LastCaptureFailed > 0 && Timing::GetUnixTimestamp() - m_LastCaptureFailed < 5)
+          overlayText += StringFormat::Fmt("\nCapture failed: %s",
+                                           ResultDetails(m_LastCaptureError).Message().c_str());
+
         if(D3D12_Debug_RT_Overlay() && m_UsedRT)
         {
           ASStats blasStats = {}, tlasStats = {};
@@ -2751,6 +2755,8 @@ void WrappedID3D12Device::StartFrameCapture(DeviceOwnedWindow devWnd)
   if(!IsBackgroundCapturing(m_State))
     return;
 
+  m_CaptureFailure = false;
+
   RDCLOG("Starting capture");
 
   if(m_Queue == NULL)
@@ -2866,6 +2872,14 @@ bool WrappedID3D12Device::EndFrameCapture(DeviceOwnedWindow devWnd)
 {
   if(!IsActiveCapturing(m_State))
     return true;
+
+  if(m_CaptureFailure)
+  {
+    m_LastCaptureFailed = Timing::GetUnixTimestamp();
+    return DiscardFrameCapture(devWnd);
+  }
+
+  m_CaptureFailure = false;
 
   IDXGISwapper *swapper = NULL;
   SwapPresentInfo swapInfo = {};
@@ -3183,8 +3197,18 @@ bool WrappedID3D12Device::EndFrameCapture(DeviceOwnedWindow devWnd)
     captureSectionSize = captureWriter->GetOffset();
   }
 
-  RDCLOG("Captured D3D12 frame with %f MB capture section in %f seconds",
-         double(captureSectionSize) / (1024.0 * 1024.0), m_CaptureTimer.GetMilliseconds() / 1000.0);
+  if(m_CaptureFailure)
+  {
+    m_LastCaptureFailed = Timing::GetUnixTimestamp();
+    SAFE_DELETE(rdc);
+  }
+  else
+  {
+    RDCLOG("Captured D3D12 frame with %f MB capture section in %f seconds",
+           double(captureSectionSize) / (1024.0 * 1024.0), m_CaptureTimer.GetMilliseconds() / 1000.0);
+  }
+
+  m_CaptureFailure = false;
 
   if(D3D12Core)
   {
@@ -3273,6 +3297,8 @@ bool WrappedID3D12Device::DiscardFrameCapture(DeviceOwnedWindow devWnd)
 {
   if(!IsActiveCapturing(m_State))
     return true;
+
+  m_CaptureFailure = false;
 
   RDCLOG("Discarding frame capture.");
 
@@ -4441,10 +4467,10 @@ void QueueReadbackData::Resize(uint64_t size)
   if(readbackSize >= size && size != 0)
     return;
 
-  if(readbackBuf)
+  if(unwrappedReadbackBuf)
   {
-    Unwrap(readbackBuf)->Unmap(0, NULL);
-    SAFE_RELEASE(readbackBuf);
+    unwrappedReadbackBuf->Unmap(0, NULL);
+    SAFE_RELEASE(unwrappedReadbackBuf);
     readbackMapped = NULL;
   }
 
@@ -4475,11 +4501,12 @@ void QueueReadbackData::Resize(uint64_t size)
   heapProps.CreationNodeMask = 1;
   heapProps.VisibleNodeMask = 1;
 
-  device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &readbackDesc,
-                                  D3D12_RESOURCE_STATE_COPY_DEST, NULL, __uuidof(ID3D12Resource),
-                                  (void **)&readbackBuf);
-  // don't intercept the map
-  Unwrap(readbackBuf)->Map(0, NULL, (void **)&readbackMapped);
+  // create this unwrapped to avoid intercepting the map during capture or having locking issues
+  // when creating this resource
+  device->GetReal()->CreateCommittedResource(
+      &heapProps, D3D12_HEAP_FLAG_NONE, &readbackDesc, D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+      __uuidof(ID3D12Resource), (void **)&unwrappedReadbackBuf);
+  unwrappedReadbackBuf->Map(0, NULL, (void **)&readbackMapped);
 }
 
 void WrappedID3D12Device::CreateInternalResources()

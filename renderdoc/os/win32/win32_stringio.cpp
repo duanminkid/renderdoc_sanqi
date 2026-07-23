@@ -96,6 +96,7 @@ void CacheSelfModuleHandle(bool cacheResources)
       "INTERNAL_SetCaptureOptions",
       "INTERNAL_GetTargetControlIdent",
       "INTERNAL_StartYuanShenDirectHooks",
+      "INTERNAL_StartSteamHooks",
       "INTERNAL_EnvModName",
       "INTERNAL_EnvModValue",
       "INTERNAL_EnvSep",

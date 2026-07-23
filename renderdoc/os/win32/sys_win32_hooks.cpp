@@ -63,12 +63,12 @@ typedef BOOL(WINAPI *PFN_CREATE_PROCESS_AS_USER_W)(
     LPSTARTUPINFOW lpStartupInfo, LPPROCESS_INFORMATION lpProcessInformation);
 
 typedef BOOL(WINAPI *PFN_CREATE_PROCESS_WITH_LOGON_W)(LPCWSTR lpUsername, LPCWSTR lpDomain,
-                                                      LPCWSTR lpPassword, DWORD dwLogonFlags,
-                                                      LPCWSTR lpApplicationName, LPWSTR lpCommandLine,
-                                                      DWORD dwCreationFlags, LPVOID lpEnvironment,
-                                                      LPCWSTR lpCurrentDirectory,
-                                                      LPSTARTUPINFOW lpStartupInfo,
-                                                      LPPROCESS_INFORMATION lpProcessInformation);
+                                                       LPCWSTR lpPassword, DWORD dwLogonFlags,
+                                                       LPCWSTR lpApplicationName, LPWSTR lpCommandLine,
+                                                       DWORD dwCreationFlags, LPVOID lpEnvironment,
+                                                       LPCWSTR lpCurrentDirectory,
+                                                       LPSTARTUPINFOW lpStartupInfo,
+                                                       LPPROCESS_INFORMATION lpProcessInformation);
 
 class SysHook : LibraryHook
 {
