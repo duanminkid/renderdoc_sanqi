@@ -1288,6 +1288,18 @@ HRESULT WrappedID3D12Device::CreateRootSignature(UINT nodeMask, const void *pBlo
               break;
           }
         }
+
+        if(m_BindlessResourceUseActive)
+        {
+          SCOPED_READLOCK(m_CapTransitionLock);
+          if(IsActiveCapturing(m_State))
+          {
+            SCOPED_LOCK(m_ResourceStatesLock);
+
+            for(auto it = m_BindlessFrameRefs.begin(); it != m_BindlessFrameRefs.end(); ++it)
+              GetResourceManager()->MarkResourceFrameReferenced(it->first, it->second);
+          }
+        }
       }
 
       record->AddChunk(scope.Get());

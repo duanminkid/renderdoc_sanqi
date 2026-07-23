@@ -3765,7 +3765,7 @@ void AddStateResetBarrier(D3D12ResourceLayout srcState, D3D12ResourceLayout dstS
                           ID3D12Resource *res, UINT subresource, BarrierSet &barriers)
 {
   if((srcState.IsStates() || srcState.ToLayout() == D3D12_BARRIER_LAYOUT_UNDEFINED) &&
-     dstState.IsStates())
+     (dstState.IsStates() || dstState.ToLayout() == D3D12_BARRIER_LAYOUT_UNDEFINED))
   {
     D3D12_RESOURCE_BARRIER b;
     b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -3778,7 +3778,10 @@ void AddStateResetBarrier(D3D12ResourceLayout srcState, D3D12ResourceLayout dstS
     if(srcState.ToLayout() == D3D12_BARRIER_LAYOUT_UNDEFINED)
       b.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
 
-    // could now be identical after silently promoting the before state.
+    if(dstState.ToLayout() == D3D12_BARRIER_LAYOUT_UNDEFINED)
+      b.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+
+    // could now be identical after silently promoting the before/after state.
     if(b.Transition.StateBefore != b.Transition.StateAfter)
       barriers.barriers.push_back(b);
   }

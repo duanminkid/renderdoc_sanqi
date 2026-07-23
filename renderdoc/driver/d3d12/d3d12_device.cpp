@@ -3307,6 +3307,8 @@ bool WrappedID3D12Device::DiscardFrameCapture(DeviceOwnedWindow devWnd)
   m_CapturedFrames.pop_back();
 
   rdcarray<WrappedID3D12CommandQueue *> queues;
+  rdcarray<WrappedID3D12CommandQueue *> refQueues;
+  rdcarray<ID3D12Resource *> refBuffers;
 
   // transition back to IDLE and readback initial states atomically
   {
@@ -3318,12 +3320,8 @@ bool WrappedID3D12Device::DiscardFrameCapture(DeviceOwnedWindow devWnd)
 
     queues = m_Queues;
 
-    // remove the reference held during capture, potentially releasing the queue.
-    for(WrappedID3D12CommandQueue *q : m_RefQueues)
-      q->Release();
-
-    for(ID3D12Resource *r : m_RefBuffers)
-      r->Release();
+    refQueues.swap(m_RefQueues);
+    refBuffers.swap(m_RefBuffers);
   }
 
   rdcarray<MapState> maps = GetMaps();
@@ -3335,6 +3333,13 @@ bool WrappedID3D12Device::DiscardFrameCapture(DeviceOwnedWindow devWnd)
 
   for(auto it = queues.begin(); it != queues.end(); ++it)
     (*it)->ClearAfterCapture();
+
+  // remove the references held during capture, potentially releasing the queue/buffer.
+  for(WrappedID3D12CommandQueue *q : refQueues)
+    q->Release();
+
+  for(ID3D12Resource *r : refBuffers)
+    r->Release();
 
   for(ID3D12Heap *h : m_InitialStateHeaps)
     h->Release();

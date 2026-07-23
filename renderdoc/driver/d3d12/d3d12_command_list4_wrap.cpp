@@ -605,8 +605,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_EndRenderPass(SerialiserType &s
           D3D12_RESOURCE_BARRIER barrier = {};
           barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
           barrier.Transition.pResource = Unwrap(state.rpDSV.DepthEndingAccess.Resolve.pSrcResource);
-          barrier.Transition.StateBefore =
-              D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_DEPTH_WRITE;
+          barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
           barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
 
           Unwrap4(m_Cmd->RerecordCmdList(m_Cmd->m_LastCmdListID))->ResourceBarrier(1, &barrier);
