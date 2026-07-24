@@ -192,6 +192,9 @@ public:
   // Returns true once DXGI trampolines are ready for calls that race with MinHook enablement.
   static bool DXGIInlineHooksDispatchReady();
 
+  // Returns true once the complete D3D11/DXGI trampoline set is ready for dispatch.
+  static bool D3D11AndDXGIInlineHooksDispatchReady();
+
   // detect if an identifier is present in the current process - used as a marker to indicate
   // replay-type programs.
   static bool Detect(const char *identifier);

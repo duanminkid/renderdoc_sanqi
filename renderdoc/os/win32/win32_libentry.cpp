@@ -86,6 +86,13 @@ static bool SQCEnvEnabled(const char *name)
          _stricmp(value, "off") != 0;
 }
 
+static bool SQCEnvIsOne(const char *name)
+{
+  char value[16] = {};
+  DWORD len = GetEnvironmentVariableA(name, value, sizeof(value));
+  return len == 1 && value[0] == '1';
+}
+
 static bool SQCSteamCaptureRequested()
 {
   wchar_t eventName[64] = {};
@@ -173,6 +180,8 @@ static BOOL add_hooks()
 
   const bool yuanShenDirectSystemLoad =
       f == "yuanshen.exe" && SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD");
+  const bool deferredD3D11LightProfile = SQCEnvIsOne("SQC_D3D11_DEFERRED_LIGHT_PROFILE");
+  const bool d3d11DirectSystemLoad = yuanShenDirectSystemLoad || deferredD3D11LightProfile;
   const bool hogwartsGameCapture =
       f == "hogwartslegacy.exe" && SQCEnvEnabled("SQC_HOGWARTS_GAME_CAPTURE");
 
@@ -205,6 +214,12 @@ static BOOL add_hooks()
       SanQiCapture::Inst().SetCaptureFileTemplate(captureFile);
 
     SQCChainLog("add_hooks applied direct capture config");
+  }
+
+  if(deferredD3D11LightProfile)
+  {
+    SetEnvironmentVariableA("SQC_D3D11_LIGHT_HOOKS", "1");
+    SQCChainLog("add_hooks deferred D3D11/DXGI light profile enabled");
   }
 
   if(f == "yuanshen.exe" && !yuanShenDirectSystemLoad &&
@@ -269,15 +284,17 @@ static BOOL add_hooks()
   RDCLOG("Loading into %ls", curFile);
 
   SQCChainLog("before LibraryHooks::RegisterHooks");
-  LibraryHooks::RegisterHooks(
-      yuanShenDirectSystemLoad
-          ? LibraryHookRegistration::D3D11AndDXGI
-          : (hogwartsGameCapture ? LibraryHookRegistration::D3D12DXGIAndIHV
-                                 : LibraryHookRegistration::All));
+  LibraryHooks::RegisterHooks(d3d11DirectSystemLoad
+                                  ? LibraryHookRegistration::D3D11AndDXGI
+                                  : (hogwartsGameCapture ? LibraryHookRegistration::D3D12DXGIAndIHV
+                                                         : LibraryHookRegistration::All));
   SQCChainLog("after LibraryHooks::RegisterHooks");
 
-  if(yuanShenDirectSystemLoad &&
-     (!D3D11HooksRegistered() || !DXGIHooksRegistered() || !LibraryHooks::HooksApplied()))
+  const bool d3d11HooksApplied =
+      deferredD3D11LightProfile ? LibraryHooks::D3D11AndDXGIInlineHooksDispatchReady()
+                                : LibraryHooks::HooksApplied();
+  if(d3d11DirectSystemLoad &&
+     (!D3D11HooksRegistered() || !DXGIHooksRegistered() || !d3d11HooksApplied))
   {
     SQCChainLog("add_hooks D3D11/DXGI registration failed");
     return FALSE;
@@ -289,8 +306,7 @@ static BOOL add_hooks()
 static void SQCSignalHookStatus(bool succeeded)
 {
   wchar_t eventName[64] = {};
-  swprintf_s(eventName, succeeded ? L"Local\\SQC_HooksReady_%u"
-                                  : L"Local\\SQC_HooksFailed_%u",
+  swprintf_s(eventName, succeeded ? L"Local\\SQC_HooksReady_%u" : L"Local\\SQC_HooksFailed_%u",
              GetCurrentProcessId());
   HANDLE event = OpenEventW(EVENT_MODIFY_STATE, FALSE, eventName);
   if(event != NULL)
@@ -339,7 +355,10 @@ static DWORD WINAPI SQCDeferredAddHooksThread(void *)
   // has left DllMain. Register before the primary thread resumes to avoid missing device creation.
   BOOL ret = add_hooks();
 
-  if(ret == TRUE && SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD"))
+  wchar_t processPath[MAX_PATH] = {};
+  GetModuleFileNameW(NULL, processPath, MAX_PATH);
+  if(ret == TRUE && SQCProcessNameMatches(processPath, L"YuanShen.exe") &&
+     SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD"))
   {
     // Remote capture configuration and hook startup are complete at this point. Hiding earlier
     // makes FindRemoteDLL/InjectFunctionCall fail; leaving the module visible makes YuanShen enter
@@ -472,12 +491,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
     const bool yuanShenDirect =
         processName == "yuanshen.exe" && SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD");
-    if(yuanShenDirect)
+    const bool deferredD3D11LightProfile = SQCEnvIsOne("SQC_D3D11_DEFERRED_LIGHT_PROFILE");
+    if(yuanShenDirect || deferredD3D11LightProfile)
     {
-      SQCWriteFixedTargetIdent(RenderDoc_FirstTargetControlPort);
+      if(yuanShenDirect)
+        SQCWriteFixedTargetIdent(RenderDoc_FirstTargetControlPort);
       if(!SQCStartDeferredAddHooks())
         return FALSE;
-      SQCChainLog("DllMain deferred add_hooks for yuanshen direct mode");
+      SQCChainLog(yuanShenDirect ? "DllMain deferred add_hooks for yuanshen direct mode"
+                                 : "DllMain deferred add_hooks for D3D11 light profile");
       SetLastError(0);
       SQCChainLog("DllMain returning");
       return TRUE;

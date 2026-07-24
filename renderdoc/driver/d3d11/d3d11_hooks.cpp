@@ -84,6 +84,12 @@ static bool SQCUseYuanShenInlineHooks()
          SQCEnvEnabled("SQC_YUANSHEN_INLINE_HOOKS");
 }
 
+static bool SQCUseD3D11InlineHooks()
+{
+  return SQCUseYuanShenInlineHooks() ||
+         LibraryHooks::D3D11AndDXGIInlineHooksDispatchReady();
+}
+
 static thread_local bool s_SQCD3D11InlineCall = false;
 
 struct SQCScopedD3D11InlineCall
@@ -1414,7 +1420,7 @@ private:
     static thread_local bool hookRecurse = false;
     SQCChainLog("D3D11CreateDevice_hook hit");
 
-    const bool inlineHooks = SQCUseYuanShenInlineHooks();
+    const bool inlineHooks = SQCUseD3D11InlineHooks();
     PFN_D3D11_CREATE_DEVICE saved = d3d11hooks.CreateDevice();
     PFN_D3D11_CREATE_DEVICE createFunc = inlineHooks
                                              ? saved
@@ -1508,7 +1514,7 @@ private:
     static thread_local bool hookRecurse = false;
     SQCChainLog("D3D11CreateDeviceAndSwapChain_hook hit");
 
-    const bool inlineHooks = SQCUseYuanShenInlineHooks();
+    const bool inlineHooks = SQCUseD3D11InlineHooks();
     PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN saved = d3d11hooks.CreateDeviceAndSwapChain();
 
     if(inlineHooks && s_SQCD3D11InlineCall)
@@ -1629,7 +1635,7 @@ extern "C" __declspec(dllexport) HRESULT WINAPI INTERNAL_D3D11CreateDevice(
   SQCChainLog("INTERNAL_D3D11CreateDevice bridge hit");
 
   PFN_D3D11_CREATE_DEVICE createFunc =
-      SQCUseYuanShenInlineHooks()
+      SQCUseD3D11InlineHooks()
           ? D3D11Hook::GetCreateDeviceOriginal()
           : (PFN_D3D11_CREATE_DEVICE)GetSystemD3D11Proc("D3D11CreateDevice");
   if(createFunc == NULL || IsOwnModuleProc((FARPROC)createFunc))
@@ -1663,7 +1669,7 @@ extern "C" __declspec(dllexport) HRESULT WINAPI INTERNAL_D3D11CreateDeviceAndSwa
   SQCChainLog("INTERNAL_D3D11CreateDeviceAndSwapChain bridge hit");
 
   PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN createFunc =
-      SQCUseYuanShenInlineHooks()
+      SQCUseD3D11InlineHooks()
           ? D3D11Hook::GetCreateDeviceAndSwapChainOriginal()
           : (PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN)GetSystemD3D11Proc(
                 "D3D11CreateDeviceAndSwapChain");

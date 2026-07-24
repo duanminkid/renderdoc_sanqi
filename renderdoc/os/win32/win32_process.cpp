@@ -919,24 +919,37 @@ static bool SqcLaunchEnvEnabled(const rdcarray<EnvironmentModification> &env, co
   return Process::GetEnvVariable(name) == "1" || SqcLaunchEnvSets(env, name, "1");
 }
 
+static bool SqcEffectiveLaunchEnvEnabled(const rdcarray<EnvironmentModification> &env,
+                                         const rdcstr &name)
+{
+  EnvMap envValues;
+  envValues[name] = Process::GetEnvVariable(name);
+  ApplyEnvModifications(envValues, env, false);
+  return envValues[name] == "1";
+}
+
 static void AddEnvMod(rdcarray<EnvironmentModification> &env, const rdcstr &name,
                       const rdcstr &value);
 static void AddYuanShenDirectEnv(rdcarray<EnvironmentModification> &env);
 
 static void SqcDiagLogEnvState(const char *label, const rdcarray<EnvironmentModification> &env)
 {
-  SqcDiagLog(StringFormat::Fmt(
-                 "[SQC-DIAG] EnvState %s direct=%u d3d11DxgiOnly=%u inlineHooks=%u proxy=%u swapWrap=%u targetControlOnly=%u rawD3D11=%u disableBootstrap=%u disableMinimal=%u\r\n",
-                 label, SqcLaunchEnvEnabled(env, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD") ? 1 : 0,
-                 SqcLaunchEnvEnabled(env, "SQC_D3D11_LIGHT_HOOKS") ? 1 : 0,
-                 SqcLaunchEnvEnabled(env, "SQC_YUANSHEN_INLINE_HOOKS") ? 1 : 0,
-                 SqcLaunchEnvEnabled(env, "SQC_D3D11_PROXY") ? 1 : 0,
-                 SqcLaunchEnvEnabled(env, "SQC_YUANSHEN_SWAPCHAIN_WRAP") ? 1 : 0,
-                 SqcLaunchEnvEnabled(env, "SQC_TARGET_CONTROL_ONLY") ? 1 : 0,
-                 SqcLaunchEnvEnabled(env, "SQC_D3D11_RAW_PASSTHROUGH") ? 1 : 0,
-                 SqcLaunchEnvEnabled(env, "SQC_DISABLE_YUANSHEN_BOOTSTRAP_ONLY") ? 1 : 0,
-                 SqcLaunchEnvEnabled(env, "SQC_DISABLE_YUANSHEN_MINIMAL_LOAD") ? 1 : 0)
-                 .c_str());
+  SqcDiagLog(
+      StringFormat::Fmt("[SQC-DIAG] EnvState %s direct=%u deferredD3D11Light=%u d3d11DxgiOnly=%u "
+                        "inlineHooks=%u proxy=%u swapWrap=%u targetControlOnly=%u rawD3D11=%u "
+                        "disableBootstrap=%u disableMinimal=%u\r\n",
+                        label, SqcLaunchEnvEnabled(env, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD") ? 1 : 0,
+                        SqcEffectiveLaunchEnvEnabled(env, "SQC_D3D11_DEFERRED_LIGHT_PROFILE") ? 1
+                                                                                              : 0,
+                        SqcLaunchEnvEnabled(env, "SQC_D3D11_LIGHT_HOOKS") ? 1 : 0,
+                        SqcLaunchEnvEnabled(env, "SQC_YUANSHEN_INLINE_HOOKS") ? 1 : 0,
+                        SqcLaunchEnvEnabled(env, "SQC_D3D11_PROXY") ? 1 : 0,
+                        SqcLaunchEnvEnabled(env, "SQC_YUANSHEN_SWAPCHAIN_WRAP") ? 1 : 0,
+                        SqcLaunchEnvEnabled(env, "SQC_TARGET_CONTROL_ONLY") ? 1 : 0,
+                        SqcLaunchEnvEnabled(env, "SQC_D3D11_RAW_PASSTHROUGH") ? 1 : 0,
+                        SqcLaunchEnvEnabled(env, "SQC_DISABLE_YUANSHEN_BOOTSTRAP_ONLY") ? 1 : 0,
+                        SqcLaunchEnvEnabled(env, "SQC_DISABLE_YUANSHEN_MINIMAL_LOAD") ? 1 : 0)
+          .c_str());
 }
 
 rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
@@ -1037,7 +1050,26 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
   const bool directSystemLoad =
       yuanShenTarget && SqcLaunchEnvEnabled(injectEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD");
+  const bool deferredD3D11LightProfile =
+      SqcEffectiveLaunchEnvEnabled(injectEnv, "SQC_D3D11_DEFERRED_LIGHT_PROFILE");
   const bool steamCapture = SqcLaunchEnvEnabled(injectEnv, "SQC_STEAM_GAME_CAPTURE");
+
+  if(deferredD3D11LightProfile)
+  {
+    wchar_t eventName[64] = {};
+    swprintf_s(eventName, L"Local\\SQC_InjectComplete_%u", pid);
+    HANDLE launchCoordinator = OpenEventW(SYNCHRONIZE, FALSE, eventName);
+    if(launchCoordinator == NULL)
+    {
+      RDResult result;
+      SET_ERROR_RESULT(result, ResultCode::InvalidParameter,
+                       "The D3D11 compatibility profile is launch-only and requires its suspended "
+                       "process coordinator.");
+      CloseHandle(hProcess);
+      return {result, 0};
+    }
+    CloseHandle(launchCoordinator);
+  }
 
   if(yuanShenBootstrapDeferred)
   {
@@ -1685,13 +1717,25 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
 
     if(setupOK && !steamCapture)
     {
-      result.second = ReadTargetIdentFile(pid);
-      if(result.second == 0)
+      if(deferredD3D11LightProfile)
       {
-        setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_GetTargetControlIdent",
-                                     &result.second, sizeof(result.second));
-        if(!setupOK)
-          failedFunc = "INTERNAL_GetTargetControlIdent";
+        result.second = WaitForTargetIdentFile(pid, hProcess, 10000);
+        if(result.second == 0)
+        {
+          setupOK = false;
+          failedFunc = "deferred D3D11 target control";
+        }
+      }
+      else
+      {
+        result.second = ReadTargetIdentFile(pid);
+        if(result.second == 0)
+        {
+          setupOK = InjectFunctionCall(hProcess, loc, "INTERNAL_GetTargetControlIdent",
+                                       &result.second, sizeof(result.second));
+          if(!setupOK)
+            failedFunc = "INTERNAL_GetTargetControlIdent";
+        }
       }
     }
 
@@ -2777,6 +2821,36 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     const rdcarray<EnvironmentModification> &env, const rdcstr &capturefile,
     const CaptureOptions &opts, bool waitForExit)
 {
+  const bool deferredD3D11LightProfile =
+      SqcEffectiveLaunchEnvEnabled(env, "SQC_D3D11_DEFERRED_LIGHT_PROFILE");
+
+  // ponytail: the light profile deliberately omits process-creation hooks, so reject this
+  // unsupported combination instead of reporting a parent-only capture as success.
+  if(deferredD3D11LightProfile && opts.hookIntoChildren)
+  {
+    RDResult result;
+    SET_ERROR_RESULT(result, ResultCode::InvalidParameter,
+                     "D3D11 Compatibility Launch cannot capture child processes.");
+    return {result, 0};
+  }
+
+  if(deferredD3D11LightProfile && WantsD3D11Proxy(env))
+  {
+    RDResult result;
+    SET_ERROR_RESULT(result, ResultCode::InvalidParameter,
+                     "D3D11 Compatibility Launch cannot be combined with D3D11 Proxy Launch.");
+    return {result, 0};
+  }
+
+  if(deferredD3D11LightProfile && IsSteamManagedPath(app))
+  {
+    RDResult result;
+    SET_ERROR_RESULT(result, ResultCode::InvalidParameter,
+                     "D3D11 Compatibility Launch requires a directly suspended executable and "
+                     "cannot be used with Steam URI launch.");
+    return {result, 0};
+  }
+
   if(WantsD3D11Proxy(env))
     return LaunchWithD3D11Proxy(app, workingDir, cmdLine, env, capturefile, opts, waitForExit);
 
@@ -2860,14 +2934,18 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
   const bool yuanShenDirectTarget =
       IsYuanShenLaunchTarget(app) &&
       SqcLaunchEnvEnabled(launchEnv, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD");
+  const bool deferredD3D11LightTarget =
+      SqcEffectiveLaunchEnvEnabled(launchEnv, "SQC_D3D11_DEFERRED_LIGHT_PROFILE");
+  const bool coordinatedD3D11Target = yuanShenDirectTarget || deferredD3D11LightTarget;
   bool processResumed = false;
 
-  if(opts.hookIntoChildren && !yuanShenDirectTarget)
+  if(opts.hookIntoChildren && !coordinatedD3D11Target)
   {
     SqcDiagLog(StringFormat::Fmt(
                    "[SQC-DIAG] ResumeThread before injection pid=%u yuanshenDirect=%u "
-                   "hookChildren=%u\r\n",
-                   pi.dwProcessId, yuanShenDirectTarget ? 1 : 0, opts.hookIntoChildren ? 1 : 0)
+                   "deferredD3D11Light=%u hookChildren=%u\r\n",
+                   pi.dwProcessId, yuanShenDirectTarget ? 1 : 0,
+                   deferredD3D11LightTarget ? 1 : 0, opts.hookIntoChildren ? 1 : 0)
                    .c_str());
     DWORD previousSuspendCount = ResumeThread(pi.hThread);
     if(previousSuspendCount == DWORD(-1))
@@ -2889,7 +2967,7 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     processResumed = true;
   }
 
-  if(opts.hookIntoChildren && !yuanShenDirectTarget)
+  if(opts.hookIntoChildren && !coordinatedD3D11Target)
   {
     DWORD firstExit = WaitForSingleObject(pi.hProcess, 5000);
     if(firstExit == WAIT_OBJECT_0)
@@ -2920,7 +2998,7 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
   DWORD injectionCompleteEventError = ERROR_SUCCESS;
   DWORD hooksReadyEventError = ERROR_SUCCESS;
   DWORD hooksFailedEventError = ERROR_SUCCESS;
-  if(yuanShenDirectTarget)
+  if(coordinatedD3D11Target)
   {
     wchar_t eventName[64] = {};
     SetLastError(ERROR_SUCCESS);
@@ -2986,7 +3064,7 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
 
   rdcpair<RDResult, uint32_t> ret =
       InjectIntoProcess(pi.dwProcessId, launchEnv, capturefile, opts, false);
-  bool hookRegistrationReady = !yuanShenDirectTarget;
+  bool hookRegistrationReady = !coordinatedD3D11Target;
 
   if(hooksReadyEvent != NULL && hooksFailedEvent != NULL && ret.second != 0)
   {
@@ -3039,7 +3117,7 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
                    .c_str());
   }
 
-  const bool canResume = !yuanShenDirectTarget ||
+  const bool canResume = !coordinatedD3D11Target ||
                          (hookRegistrationReady && ret.first == ResultCode::Succeeded &&
                           ret.second != 0);
   if(!processResumed && canResume)
@@ -3068,7 +3146,7 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
                      .c_str());
     }
   }
-  else if(!processResumed && yuanShenDirectTarget)
+  else if(!processResumed && coordinatedD3D11Target)
   {
     SqcDiagLog(StringFormat::Fmt(
                    "[SQC-DIAG] Target kept suspended because hook setup failed pid=%u\r\n",

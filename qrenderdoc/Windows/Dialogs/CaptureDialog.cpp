@@ -41,6 +41,15 @@
 #define JSON_ID "rdocCaptureSettings"
 #define JSON_VER 1
 
+static const rdcstr D3D11CompatibilityProfileEnv = "SQC_D3D11_DEFERRED_LIGHT_PROFILE";
+
+static bool IsD3D11CompatibilityProfile(const EnvironmentModification &env)
+{
+  return QString::compare(QString::fromUtf8(env.name.c_str()),
+                          QString::fromUtf8(D3D11CompatibilityProfileEnv.c_str()),
+                          Qt::CaseInsensitive) == 0;
+}
+
 static QString GetDescription(const EnvironmentModification &env)
 {
   QString ret;
@@ -251,6 +260,7 @@ void CaptureDialog::SetInjectMode(bool inject)
 
     ui->globalGroup->setVisible(false);
     ui->D3D11Proxy->setEnabled(false);
+    ui->D3D11Compatibility->setEnabled(false);
 
     fillProcessList();
 
@@ -267,6 +277,7 @@ void CaptureDialog::SetInjectMode(bool inject)
 
     ui->globalGroup->setVisible(m_Ctx.Config().AllowGlobalHook);
     ui->D3D11Proxy->setEnabled(true);
+    ui->D3D11Compatibility->setEnabled(true);
 
     ui->launch->setText(lit("Launch"));
     this->setWindowTitle(lit("Launch Application"));
@@ -918,12 +929,30 @@ void CaptureDialog::SetSettings(CaptureSettings settings)
   ui->workDirPath->setText(settings.workingDir);
   ui->cmdline->setText(settings.commandLine);
 
-  SetEnvironmentModifications(settings.environment);
+  rdcarray<EnvironmentModification> visibleEnvironment;
+  bool d3d11Compatibility = false;
+  size_t compatibilityModificationCount = 0;
+  for(const EnvironmentModification &mod : settings.environment)
+  {
+    if(IsD3D11CompatibilityProfile(mod))
+      compatibilityModificationCount++;
+  }
+
+  for(const EnvironmentModification &mod : settings.environment)
+  {
+    if(!settings.inject && compatibilityModificationCount == 1 &&
+       IsD3D11CompatibilityProfile(mod) && mod.mod == EnvMod::Set && mod.value == "1")
+      d3d11Compatibility = true;
+    else
+      visibleEnvironment.push_back(mod);
+  }
+  SetEnvironmentModifications(visibleEnvironment);
 
   ui->AllowFullscreen->setChecked(settings.options.allowFullscreen);
   ui->AllowVSync->setChecked(settings.options.allowVSync);
   ui->HookIntoChildren->setChecked(settings.options.hookIntoChildren);
   ui->D3D11Proxy->setChecked(settings.d3d11Proxy);
+  ui->D3D11Compatibility->setChecked(d3d11Compatibility);
   ui->CaptureCallstacks->setChecked(settings.options.captureCallstacks);
   ui->CaptureCallstacksOnlyActions->setChecked(settings.options.captureCallstacksOnlyActions);
   ui->APIValidation->setChecked(settings.options.apiValidation);
@@ -961,6 +990,7 @@ CaptureSettings CaptureDialog::Settings()
   CaptureSettings ret;
 
   ret.inject = IsInjectMode();
+  const bool d3d11Compatibility = !ret.inject && ui->D3D11Compatibility->isChecked();
 
   ret.autoStart = ui->AutoStart->isChecked();
   ret.d3d11Proxy = ui->D3D11Proxy->isChecked();
@@ -969,7 +999,22 @@ CaptureSettings CaptureDialog::Settings()
   ret.workingDir = ui->workDirPath->text();
   ret.commandLine = GetCommandLine();
 
-  ret.environment = m_EnvModifications;
+  for(const EnvironmentModification &mod : m_EnvModifications)
+  {
+    // The compatibility handshake requires a suspended launch coordinator, so never forward a
+    // manually-entered marker through process attach.
+    if(!ret.inject || !IsD3D11CompatibilityProfile(mod))
+      ret.environment.push_back(mod);
+  }
+  if(d3d11Compatibility)
+  {
+    EnvironmentModification mod;
+    mod.name = D3D11CompatibilityProfileEnv;
+    mod.value = "1";
+    mod.mod = EnvMod::Set;
+    mod.sep = EnvSep::NoSep;
+    ret.environment.push_back(mod);
+  }
 
   ret.options.allowFullscreen = ui->AllowFullscreen->isChecked();
   ret.options.allowVSync = ui->AllowVSync->isChecked();
