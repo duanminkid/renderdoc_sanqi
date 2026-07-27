@@ -787,17 +787,6 @@ static CachedHookData *s_HookData = NULL;
 static bool s_SQCMinHookInitialised = false;
 static rdcarray<void **> s_SQCInlineOriginalPointers;
 
-static bool SQCUseYuanShenInlineHooks()
-{
-  if(!SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD") ||
-     !SQCEnvEnabled("SQC_YUANSHEN_INLINE_HOOKS"))
-    return false;
-
-  char processPath[MAX_PATH] = {};
-  GetModuleFileNameA(NULL, processPath, MAX_PATH);
-  return strlower(get_basename(processPath)) == "yuanshen.exe";
-}
-
 static bool SQCUseHogwartsDXGIInlineHooks()
 {
   if(!SQCEnvEnabled("SQC_HOGWARTS_GAME_CAPTURE"))
@@ -813,7 +802,7 @@ static bool SQCUseSteamDXGIInlineHooks()
   return SQCEnvEnabled("SQC_STEAM_GAME_CAPTURE");
 }
 
-static bool SQCUseD3D11CompatibilityInlineHooks()
+static bool SQCUseD3D11InlineCaptureHooks()
 {
   return SQCEnvIsOne("SQC_D3D11_DEFERRED_LIGHT_PROFILE");
 }
@@ -887,10 +876,9 @@ static bool SQCRemoveInlineHooks()
 
 static bool SQCApplyInlineHooks(bool hogwartsDXGIOnly)
 {
-  const char *profile =
-      hogwartsDXGIOnly
-          ? (SQCUseSteamDXGIInlineHooks() ? "Steam DXGI" : "Hogwarts DXGI")
-          : (SQCUseD3D11CompatibilityInlineHooks() ? "D3D11 compatibility" : "YuanShen D3D11/DXGI");
+  const char *profile = hogwartsDXGIOnly
+                            ? (SQCUseSteamDXGIInlineHooks() ? "Steam DXGI" : "Hogwarts DXGI")
+                            : "D3D11 inline";
   {
     char msg[128] = {};
     wsprintfA(msg, "%s inline hook transaction begin", profile);
@@ -1558,15 +1546,13 @@ void LibraryHooks::EndHookRegistration()
   for(auto it = s_HookData->DllHooks.begin(); it != s_HookData->DllHooks.end(); ++it)
     std::sort(it->second.FunctionHooks.begin(), it->second.FunctionHooks.end());
 
-  const bool yuanShenInlineHooks = SQCUseYuanShenInlineHooks();
   const bool steamCapture = SQCUseSteamDXGIInlineHooks();
   const bool hogwartsDXGIInlineHooks = SQCUseHogwartsDXGIInlineHooks();
-  const bool d3d11CompatibilityInlineHooks = SQCUseD3D11CompatibilityInlineHooks();
+  const bool d3d11InlineCaptureHooks = SQCUseD3D11InlineCaptureHooks();
   bool dxgiInlineHooks = hogwartsDXGIInlineHooks;
   bool inlineHooksApplied = false;
 
-  if(d3d11CompatibilityInlineHooks &&
-     (yuanShenInlineHooks || steamCapture || hogwartsDXGIInlineHooks))
+  if(d3d11InlineCaptureHooks && (steamCapture || hogwartsDXGIInlineHooks))
   {
     SQCChainLog("EndHookRegistration conflicting graphics capture profiles");
     InterlockedExchange(&s_SQCHookRegistrationState, -1);
@@ -1591,7 +1577,7 @@ void LibraryHooks::EndHookRegistration()
     }
   }
 
-  if(d3d11CompatibilityInlineHooks || yuanShenInlineHooks || dxgiInlineHooks)
+  if(d3d11InlineCaptureHooks || dxgiInlineHooks)
   {
     if(inlineHooksApplied || SQCApplyInlineHooks(dxgiInlineHooks))
     {
@@ -1607,9 +1593,7 @@ void LibraryHooks::EndHookRegistration()
         // Inline hooks cover dynamically resolved graphics exports directly. Do not modify the main
         // executable's loader IAT in this mode; that mutation is what correlated with the startup
         // exception loop in the captured YuanShen diagnostics.
-        SQCChainLog(d3d11CompatibilityInlineHooks
-                        ? "EndHookRegistration D3D11 compatibility inline-only path committed"
-                        : "EndHookRegistration YuanShen inline-only path committed");
+        SQCChainLog("EndHookRegistration D3D11 inline-only path committed");
         InterlockedExchange(&s_SQCHookRegistrationState, 1);
         return;
       }

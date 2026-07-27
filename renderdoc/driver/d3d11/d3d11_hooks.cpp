@@ -78,16 +78,9 @@ static bool SQCIsYuanShenProcess()
   return _wcsicmp(base, L"YuanShen.exe") == 0;
 }
 
-static bool SQCUseYuanShenInlineHooks()
-{
-  return SQCIsYuanShenProcess() && SQCEnvEnabled("SQC_YUANSHEN_DIRECT_SYSTEM_LOAD") &&
-         SQCEnvEnabled("SQC_YUANSHEN_INLINE_HOOKS");
-}
-
 static bool SQCUseD3D11InlineHooks()
 {
-  return SQCUseYuanShenInlineHooks() ||
-         LibraryHooks::D3D11AndDXGIInlineHooksDispatchReady();
+  return LibraryHooks::D3D11AndDXGIInlineHooksDispatchReady();
 }
 
 static thread_local bool s_SQCD3D11InlineCall = false;

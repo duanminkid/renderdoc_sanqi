@@ -87,6 +87,7 @@ private slots:
   // automatic slots
   void on_exePathBrowse_clicked();
   void on_exePath_textChanged(const QString &arg1);
+  void on_D3D11Compatibility_clicked(bool checked);
   void on_workDirBrowse_clicked();
   void on_envVarEdit_clicked();
 
@@ -124,12 +125,15 @@ private:
 
   rdcarray<EnvironmentModification> m_EnvModifications;
   bool m_Inject;
+  uint64_t m_D3D11PreferenceGeneration = 0;
   void fillProcessList();
   void initWarning(RDLabel *label);
 
   QString mostRecentFilename();
 
   void PopulateMostRecent();
+  bool IsD3D11InlineCaptureExecutable(const QString &executable);
+  void SetD3D11InlineCapturePreference(const QString &executable, bool enabled);
   CaptureSettings LoadSettingsFromDisk(const rdcstr &filename);
 
   void CheckAndroidSetup(QString &filename);

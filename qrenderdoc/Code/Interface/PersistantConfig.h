@@ -269,6 +269,12 @@ DECLARE_REFLECTION_STRUCT(BugReport);
   CONFIG_SETTING_VAL(public, QString, rdcstr, LastCaptureExe, "")                                  \
                                                                                                    \
   DOCUMENT(                                                                                        \
+      "Canonical executable paths that use the validated direct D3D11 inline capture strategy."   \
+      "\n:"                                                                                        \
+      "type: List[str]");                                                                          \
+  CONFIG_SETTING(public, QVariantList, rdcarray<rdcstr>, D3D11InlineCaptureExecutables)            \
+                                                                                                   \
+  DOCUMENT(                                                                                        \
       "The recently opened capture settings files.\n"                                              \
       "\n:"                                                                                        \
       "type: List[str]");                                                                          \

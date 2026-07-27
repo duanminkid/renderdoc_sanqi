@@ -1054,7 +1054,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
       SqcEffectiveLaunchEnvEnabled(injectEnv, "SQC_D3D11_DEFERRED_LIGHT_PROFILE");
   const bool steamCapture = SqcLaunchEnvEnabled(injectEnv, "SQC_STEAM_GAME_CAPTURE");
 
-  if(deferredD3D11LightProfile)
+  if(deferredD3D11LightProfile && !directSystemLoad)
   {
     wchar_t eventName[64] = {};
     swprintf_s(eventName, L"Local\\SQC_InjectComplete_%u", pid);
@@ -1948,6 +1948,7 @@ static void AddEnvMod(rdcarray<EnvironmentModification> &env, const rdcstr &name
 static void AddYuanShenDirectEnv(rdcarray<EnvironmentModification> &env)
 {
   AddEnvMod(env, "SQC_YUANSHEN_DIRECT_SYSTEM_LOAD", "1");
+  AddEnvMod(env, "SQC_D3D11_DEFERRED_LIGHT_PROFILE", "1");
   AddEnvMod(env, "SQC_D3D11_LIGHT_HOOKS", "1");
   AddEnvMod(env, "SQC_YUANSHEN_INLINE_HOOKS", "1");
 }

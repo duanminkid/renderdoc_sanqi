@@ -50,6 +50,31 @@ static bool IsD3D11CompatibilityProfile(const EnvironmentModification &env)
                           Qt::CaseInsensitive) == 0;
 }
 
+static rdcstr NormaliseCaptureExecutable(const QString &executable)
+{
+  if(executable.isEmpty())
+    return {};
+
+  QFileInfo info(executable);
+  if(!info.exists())
+  {
+    const QString resolved = QStandardPaths::findExecutable(executable);
+    if(!resolved.isEmpty())
+      info = QFileInfo(resolved);
+  }
+
+  QString path = info.canonicalFilePath();
+  if(path.isEmpty())
+    path = info.absoluteFilePath();
+  path = QDir::cleanPath(QDir::fromNativeSeparators(path));
+
+#if defined(Q_OS_WIN32)
+  path = path.toLower();
+#endif
+
+  return path;
+}
+
 static QString GetDescription(const EnvironmentModification &env)
 {
   QString ret;
@@ -344,7 +369,19 @@ void CaptureDialog::on_exePath_textChanged(const QString &text)
     ui->workDirPath->setPlaceholderText(QString());
   }
 
+  if(!m_Inject && !m_Ctx.Replay().CurrentRemote().IsValid())
+    ui->D3D11Compatibility->setChecked(IsD3D11InlineCaptureExecutable(exe));
+
   UpdateGlobalHook();
+}
+
+void CaptureDialog::on_D3D11Compatibility_clicked(bool checked)
+{
+  if(checked || m_Inject || m_Ctx.Replay().CurrentRemote().IsValid())
+    return;
+
+  m_D3D11PreferenceGeneration++;
+  SetD3D11InlineCapturePreference(ui->exePath->text(), false);
 }
 
 void CaptureDialog::vulkanLayerWarn_mouseClick()
@@ -952,7 +989,8 @@ void CaptureDialog::SetSettings(CaptureSettings settings)
   ui->AllowVSync->setChecked(settings.options.allowVSync);
   ui->HookIntoChildren->setChecked(settings.options.hookIntoChildren);
   ui->D3D11Proxy->setChecked(settings.d3d11Proxy);
-  ui->D3D11Compatibility->setChecked(d3d11Compatibility);
+  if(settings.inject || compatibilityModificationCount > 0)
+    ui->D3D11Compatibility->setChecked(d3d11Compatibility);
   ui->CaptureCallstacks->setChecked(settings.options.captureCallstacks);
   ui->CaptureCallstacksOnlyActions->setChecked(settings.options.captureCallstacksOnlyActions);
   ui->APIValidation->setChecked(settings.options.apiValidation);
@@ -1035,6 +1073,40 @@ CaptureSettings CaptureDialog::Settings()
   }
 
   return ret;
+}
+
+bool CaptureDialog::IsD3D11InlineCaptureExecutable(const QString &executable)
+{
+  const rdcstr normalised = NormaliseCaptureExecutable(executable);
+  if(normalised.empty())
+    return false;
+
+  for(const rdcstr &entry : m_Ctx.Config().D3D11InlineCaptureExecutables)
+  {
+    if(entry == normalised)
+      return true;
+  }
+
+  return false;
+}
+
+void CaptureDialog::SetD3D11InlineCapturePreference(const QString &executable, bool enabled)
+{
+  const rdcstr normalised = NormaliseCaptureExecutable(executable);
+  if(normalised.empty())
+    return;
+
+  rdcarray<rdcstr> &entries = m_Ctx.Config().D3D11InlineCaptureExecutables;
+  for(size_t i = entries.size(); i > 0; --i)
+  {
+    if(entries[i - 1] == normalised)
+      entries.erase(i - 1);
+  }
+
+  if(enabled)
+    entries.push_back(normalised);
+
+  m_Ctx.Config().Save();
 }
 
 void CaptureDialog::SaveSettings(const rdcstr &filename)
@@ -1319,8 +1391,16 @@ void CaptureDialog::TriggerCapture()
       env.push_back(mod);
     }
 
+    const bool rememberD3D11Preference = !m_Ctx.Replay().CurrentRemote().IsValid();
+    const bool d3d11Compatibility = ui->D3D11Compatibility->isChecked();
+    const uint64_t d3d11PreferenceGeneration = m_D3D11PreferenceGeneration;
     m_CaptureCallback(exe, workingDir, cmdLine, env, settings.options,
-                      [this](LiveCapture *live) {
+                      [this, exe, rememberD3D11Preference, d3d11Compatibility,
+                       d3d11PreferenceGeneration](LiveCapture *live) {
+                        if(live != NULL && rememberD3D11Preference &&
+                           d3d11PreferenceGeneration == m_D3D11PreferenceGeneration)
+                          SetD3D11InlineCapturePreference(exe, d3d11Compatibility);
+
                         if(ui->queueFrameCap->isChecked())
                           live->QueueCapture((int)ui->queuedFrame->value(),
                                              (int)ui->numFrames->value());
